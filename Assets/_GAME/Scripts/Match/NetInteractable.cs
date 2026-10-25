@@ -127,29 +127,11 @@ public abstract class NetInteractable : NetworkBehaviour
         return true;
     }
 
-    /// <summary>Tô màu theo tiến độ (mọi máy tự làm). Lớp con ghi đè nếu muốn màu khác hoặc không tô.</summary>
-    protected virtual void UpdateVisual()
-    {
-        if (visual == null) visual = GetComponentInChildren<Renderer>();
-        if (visual != null) SetVisualColor(GetColor());
-    }
-
-    /// <summary>Đổi màu bằng MaterialPropertyBlock (không nhân bản material), và chỉ ghi khi màu thật sự đổi.</summary>
-    protected void SetVisualColor(Color c)
-    {
-        if (visual == null || (hasColor && c == lastColor)) return;
-        hasColor = true;
-        lastColor = c;
-        colorBlock ??= new MaterialPropertyBlock();
-        visual.GetPropertyBlock(colorBlock);
-        colorBlock.SetColor(BaseColorId, c);   // URP
-        colorBlock.SetColor(ColorId, c);       // shader cũ
-        visual.SetPropertyBlock(colorBlock);
-    }
+   
 
     protected virtual void Update()
     {
-        UpdateVisual();
+        
 
         if (!IsServer || Done.Value || users.Count == 0) return;
 

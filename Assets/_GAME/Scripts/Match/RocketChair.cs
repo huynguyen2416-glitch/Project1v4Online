@@ -152,10 +152,5 @@ public class RocketChair : NetInteractable
         countdownLabel.text = s > 0 ? s + "s" : "";
     }
 
-    protected override void UpdateVisual()
-    {
-        if (visual == null) visual = GetComponentInChildren<Renderer>();
-        // Ghế trống: xám. Có người: đỏ -> xanh theo tiến độ cứu.
-        SetVisualColor(IsFree ? Color.gray : Color.Lerp(Color.red, Color.green, Progress.Value));
-    }
+    
 }
