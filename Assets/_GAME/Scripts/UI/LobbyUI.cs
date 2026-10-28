@@ -44,7 +44,7 @@ public class LobbyUI : MonoBehaviour
         else if (!ready && subscribed)
         {
             Unsubscribe();
-        }
+     }
 
         if (ready && hostOnlyGroup != null && hostOnlyGroup.activeSelf != lobby.IsServer)
             hostOnlyGroup.SetActive(lobby.IsServer);

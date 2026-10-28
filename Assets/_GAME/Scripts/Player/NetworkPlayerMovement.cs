@@ -1,6 +1,7 @@
 using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Di chuyển người chơi qua mạng (Owner-authoritative).
@@ -134,12 +135,23 @@ public class NetworkPlayerMovement : NetworkBehaviour
         standCenter = cc.center;
     }
 
+    // Đếm số người đã spawn trong scene hiện tại để chia slot không trùng nhau.
+    static int spawnCounter;
+
+    // Reset bộ đếm mỗi khi scene mới được load (Lobby → Match → Lobby...).
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    static void HookSceneReset()
+    {
+        spawnCounter = 0;
+        SceneManager.sceneLoaded += (_, _2) => spawnCounter = 0;
+    }
+
     public override void OnNetworkSpawn()
     {
         cc.enabled = false;
         if (!IsOwner) return;
 
-        int slot = (int)(OwnerClientId % 5);
+        int slot = spawnCounter++ % 5;
         Vector3 pos = spawnOrigin + Vector3.right * (spawnSpacing * slot);
         transform.position = pos;
         cc.enabled = true;

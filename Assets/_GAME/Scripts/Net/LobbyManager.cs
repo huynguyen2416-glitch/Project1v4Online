@@ -8,33 +8,48 @@ public struct LobbyEntry : INetworkSerializable, IEquatable<LobbyEntry>
     public ulong ClientId;
     public bool Ready;
     public bool WantsHunter;
+    public int CharacterIndex;
 
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
     {
         serializer.SerializeValue(ref ClientId);
         serializer.SerializeValue(ref Ready);
         serializer.SerializeValue(ref WantsHunter);
+        serializer.SerializeValue(ref CharacterIndex);
     }
 
-    public bool Equals(LobbyEntry o) => ClientId == o.ClientId && Ready == o.Ready && WantsHunter == o.WantsHunter;
+    public bool Equals(LobbyEntry o) =>
+        ClientId == o.ClientId && Ready == o.Ready && WantsHunter == o.WantsHunter && CharacterIndex == o.CharacterIndex;
 }
 
 /// <summary>
 /// Phòng chờ (scene Lobby). Đặt 1 GameObject trong scene Lobby, gắn NetworkObject + script này.
-/// Tối đa 5 chỗ. Server giữ danh sách, client gửi Ready / "Muốn làm Hunter" qua ServerRpc.
-/// Không vẽ giao diện: LobbyUI (Canvas) đọc dữ liệu qua các thuộc tính/sự kiện public bên dưới,
-/// các nút gọi trực tiếp ToggleReady, SetWantHunter, SetDebug, StartMatch qua OnClick.
+/// Tối đa 5 chỗ. Server giữ danh sách, client gửi Ready / "Muốn làm Hunter" / Nhân vật qua ServerRpc.
+/// Host chọn BẢN ĐỒ (MapIndex đồng bộ cho mọi người). Mỗi người chọn NHÂN VẬT (CharacterIndex) cho vai mình sẽ nhận.
+/// Chạy giống nhau cho LAN và WAN (Relay): kết nối xong là NetworkManager đã chạy, script này không quan tâm cách kết nối.
+/// Không vẽ giao diện: LobbyUI và LobbySelectionUI (Canvas) đọc dữ liệu qua các thuộc tính/sự kiện public bên dưới.
 /// </summary>
 public class LobbyManager : NetworkBehaviour
 {
     public const int MaxPlayers = 5;
 
-    [SerializeField] string matchScene = "Match";
+    [Header("Bản đồ (host chọn)")]
+    [Tooltip("Tên scene của từng bản đồ (phải có trong Build Profiles). Phần tử đầu là mặc định.")]
+    [SerializeField] string[] mapScenes = { "Match" };
+    [Tooltip("Tên hiển thị tương ứng từng bản đồ.")]
+    [SerializeField] string[] mapNames = { "Bản đồ 1" };
+
+    [Header("Nhân vật (mỗi người chọn)")]
+    [Tooltip("Tên hiển thị các nhân vật. Chỉ số này dùng cho cả Survivor lẫn Hunter: MatchSpawner lấy prefab thứ i của vai mình nhận.")]
+    [SerializeField] string[] characterNames = { "Mặc định" };
+
+    /// <summary>Bản đồ đang chọn (chỉ số trong mapScenes), đồng bộ cho mọi máy.</summary>
+    public readonly NetworkVariable<int> MapIndex = new NetworkVariable<int>(0);
 
     NetworkList<LobbyEntry> entries;
     bool debugAnyCount;
 
-    /// <summary>Bắn khi danh sách đổi, khi bật/tắt Debug hoặc khi vừa spawn (để UI vẽ lại).</summary>
+    /// <summary>Bắn khi danh sách hoặc bản đồ đổi, khi bật/tắt Debug hoặc khi vừa spawn (để UI vẽ lại).</summary>
     public event Action OnChanged;
     /// <summary>Thông báo cho người bấm Bắt đầu (chưa đủ người, còn người chưa sẵn sàng...).</summary>
     public event Action<string> OnMessage;
@@ -42,6 +57,11 @@ public class LobbyManager : NetworkBehaviour
     public int Count => entries.Count;
     public LobbyEntry Get(int i) => entries[i];
     public bool DebugAnyCount => debugAnyCount;
+
+    public int MapCount => mapScenes != null ? mapScenes.Length : 0;
+    public string MapName(int i) => (mapNames != null && i >= 0 && i < mapNames.Length) ? mapNames[i] : (mapScenes != null && i >= 0 && i < mapScenes.Length ? mapScenes[i] : "?");
+    public int CharacterCount => characterNames != null ? characterNames.Length : 0;
+    public string CharacterName(int i) => (characterNames != null && i >= 0 && i < characterNames.Length) ? characterNames[i] : "?";
 
     void Awake()
     {
@@ -51,6 +71,7 @@ public class LobbyManager : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         entries.OnListChanged += HandleListChanged;
+        MapIndex.OnValueChanged += HandleMapChanged;
 
         if (IsServer)
         {
@@ -64,6 +85,7 @@ public class LobbyManager : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         entries.OnListChanged -= HandleListChanged;
+        MapIndex.OnValueChanged -= HandleMapChanged;
         if (IsServer && NetworkManager != null)
         {
             NetworkManager.OnClientConnectedCallback -= AddClient;
@@ -72,6 +94,7 @@ public class LobbyManager : NetworkBehaviour
     }
 
     void HandleListChanged(NetworkListEvent<LobbyEntry> e) => OnChanged?.Invoke();
+    void HandleMapChanged(int oldValue, int newValue) => OnChanged?.Invoke();
 
     int IndexOf(ulong id)
     {
@@ -133,6 +156,17 @@ public class LobbyManager : NetworkBehaviour
         entries[i] = e;
     }
 
+    [ServerRpc(RequireOwnership = false)]
+    void SetCharacterServerRpc(int characterIndex, ServerRpcParams p = default)
+    {
+        int i = IndexOf(p.Receive.SenderClientId);
+        if (i < 0) return;
+        if (characterIndex < 0 || characterIndex >= Mathf.Max(1, CharacterCount)) return;   // server kiểm tra chỉ số hợp lệ
+        LobbyEntry e = entries[i];
+        e.CharacterIndex = characterIndex;
+        entries[i] = e;
+    }
+
     // ---------------- Hàm public cho nút UI (OnClick) ----------------
 
     /// <summary>Nút Sẵn sàng / Hủy sẵn sàng.</summary>
@@ -145,6 +179,20 @@ public class LobbyManager : NetworkBehaviour
     public void SetWantHunter(bool want)
     {
         if (TryGetMine(out LobbyEntry mine) && mine.WantsHunter != want) WantHunterServerRpc(want);
+    }
+
+    /// <summary>Chọn nhân vật (chỉ số trong characterNames).</summary>
+    public void SetCharacter(int characterIndex)
+    {
+        if (TryGetMine(out LobbyEntry mine) && mine.CharacterIndex != characterIndex) SetCharacterServerRpc(characterIndex);
+    }
+
+    /// <summary>Host chọn bản đồ. Người khác gọi hàm này không có tác dụng.</summary>
+    public void SetMap(int mapIndex)
+    {
+        if (!IsSpawned || !IsServer) return;
+        if (mapIndex < 0 || mapIndex >= MapCount) return;
+        MapIndex.Value = mapIndex;
     }
 
     /// <summary>Toggle Debug: bắt đầu trận với số người tùy ý (chỉ có tác dụng trên host).</summary>
@@ -178,7 +226,7 @@ public class LobbyManager : NetworkBehaviour
         }
 
         // Chọn Hunter: ưu tiên người tick "Muốn làm Hunter", không ai tick thì random.
-        // Chỉ 1 người trong phòng (debug) thì tất cả là Survivor để test máy/cổng/hầm.
+        // Chỉ 1 người trong phòng (debug): mặc định là Survivor để test máy/cổng/hầm; tick Hunter thì làm Hunter.
         ulong hunterId = ulong.MaxValue;
         if (n >= 2)
         {
@@ -192,15 +240,25 @@ public class LobbyManager : NetworkBehaviour
             var pool = wants.Count > 0 ? wants : all;
             hunterId = pool[UnityEngine.Random.Range(0, pool.Count)];
         }
+        else if (entries[0].WantsHunter)
+        {
+            hunterId = entries[0].ClientId;
+        }
 
         RoleAssignments.Clear();
+        CharacterAssignments.Clear();
         for (int i = 0; i < n; i++)
         {
             ulong id = entries[i].ClientId;
             RoleAssignments.Set(id, id == hunterId ? Role.Hunter : Role.Survivor);
+            CharacterAssignments.Set(id, entries[i].CharacterIndex);
         }
 
-        NetworkManager.SceneManager.LoadScene(matchScene, LoadSceneMode.Single);
+        string scene = mapScenes[Mathf.Clamp(MapIndex.Value, 0, mapScenes.Length - 1)];
+        Debug.Log($"[Lobby] Bắt đầu trận: {n} người, bản đồ \"{scene}\", Hunter = " +
+                  (hunterId == ulong.MaxValue ? "không có" : "#" + hunterId));
+
+        NetworkManager.SceneManager.LoadScene(scene, LoadSceneMode.Single);
     }
 
     void Say(string msg)

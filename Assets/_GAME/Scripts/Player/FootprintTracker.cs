@@ -111,6 +111,12 @@ public class FootprintTracker : NetworkBehaviour
     // Máy Hunter: Survivor đang chạy thì để lại dấu đỏ.
     void TrackSurvivors()
     {
+        // Dọn key đã despawn khỏi timers để tránh rò bộ nhớ và NullRef.
+        var toRemove = new System.Collections.Generic.List<SurvivorState>();
+        foreach (var k in timers.Keys)
+            if (k == null || !k.IsSpawned) toRemove.Add(k);
+        foreach (var k in toRemove) timers.Remove(k);
+
         foreach (SurvivorState st in SurvivorState.All)
         {
             if (st == null || !st.IsSpawned || !st.IsActive) continue;     // chỉ Khỏe hoặc Bị thương

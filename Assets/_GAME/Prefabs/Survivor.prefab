@@ -18,6 +18,8 @@ GameObject:
   - component: {fileID: 8299185010102070534}
   - component: {fileID: 6027764112724835902}
   - component: {fileID: 9210714308384754500}
+  - component: {fileID: 6110569985052835119}
+  - component: {fileID: 151700662526581597}
   m_Layer: 0
   m_Name: Survivor
   m_TagString: Untagged
@@ -255,6 +257,35 @@ MonoBehaviour:
   terrorShockColor: {r: 1, g: 0, b: 1, a: 1}
   terrorShockFlashSeconds: 0.45
   debugKeys: 1
+--- !u!114 &6110569985052835119
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8391598782299239889}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: acfdb56fb37db3b488c939666c521d3a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerIdentity
+  ShowTopMostFoldoutHeaderGroup: 1
+--- !u!114 &151700662526581597
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8391598782299239889}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 38885e9b95104364f8ba66f48af3b792, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PalletInteract
+  ShowTopMostFoldoutHeaderGroup: 1
+  interactKey: 102
+  palletPromptUI: {fileID: 0}
+  promptLabel: {fileID: 0}
 --- !u!1001 &2672951682763783715
 PrefabInstance:
   m_ObjectHideFlags: 0

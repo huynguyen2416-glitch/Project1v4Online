@@ -117,13 +117,24 @@ public class SurvivorState : NetworkBehaviour
             foreach (AnimatorControllerParameter p in animator.parameters)
                 if (p.nameHash == HealthParam) { hasHealthParam = true; break; }
         }
+
+        // Ẩn toàn bộ renderer ngay khi tạo ra, tránh flash màu xanh lúc shader chưa compile.
+        // Sẽ được bật lại sau 1 frame trong OnNetworkSpawn.
+        foreach (Renderer r in renderers) if (r != null) r.enabled = false;
     }
 
     public override void OnNetworkSpawn()
     {
         All.Add(this);
         Value.OnValueChanged += OnChanged;
-        Apply();
+        // Chờ 1 frame để shader kịp compile rồi mới Apply() để tránh flash màu xanh.
+        StartCoroutine(ApplyNextFrame());
+    }
+
+    IEnumerator ApplyNextFrame()
+    {
+        yield return null;   // 1 frame
+        if (IsSpawned) Apply();
     }
 
     public override void OnNetworkDespawn()

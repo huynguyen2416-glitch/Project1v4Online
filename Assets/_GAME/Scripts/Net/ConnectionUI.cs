@@ -1,105 +1,119 @@
-using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using Unity.Netcode;
-using Unity.Services.Authentication;
-using Unity.Services.Core;
-using Unity.Services.Multiplayer;
+using Unity.Netcode.Transports.UTP;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
-// Thay cho phần nhập IP/port của ConnectionUI. Gắn lên object NetworkManager (Lobby).
-public class RelayConnectionUI : MonoBehaviour
+/// Nhập IP/port, bấm Host hoặc Client (LAN). Gắn vào GameObject NetworkManager.
+/// Hiện IP LAN của máy để người kia nhập. Chỉ khóa chuột trong scene trận (Match).
+public class ConnectionUI : MonoBehaviour
 {
-    public static string JoinCode { get; private set; } = "";   // LobbyUI đọc để hiện mã phòng
+    [SerializeField] string hostIp = "127.0.0.1";
+    [SerializeField] ushort port = 7777;
+    [SerializeField] string matchSceneName = "Match";
+    [SerializeField] string lobbySceneName = "Lobby";
 
-    string codeInput = "";
-    string status = "Chưa kết nối";
-    ISession session;
-    bool busy;
+    string portText;
+    string localIps;
+    bool? wasInMatch;
+    bool wasListening;
 
-    static async Task EnsureSignedInAsync()
+    void Start()
     {
-        if (UnityServices.State != ServicesInitializationState.Initialized)
-        {
-            var opt = new InitializationOptions();
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            // Mỗi tiến trình một profile: 2 bản chạy cùng máy không bị trùng PlayerId
-            opt.SetProfile("p" + System.Diagnostics.Process.GetCurrentProcess().Id);
-#endif
-            await UnityServices.InitializeAsync(opt);
-        }
-        if (!AuthenticationService.Instance.IsSignedIn)
-            await AuthenticationService.Instance.SignInAnonymouslyAsync();
+        portText = port.ToString();
+        localIps = GetLocalIps();
     }
 
-    async void HostAsync()
+    void Update()
     {
-        if (busy) return;
-        busy = true;
-        try
-        {
-            status = "Đang tạo phòng...";
-            await EnsureSignedInAsync();
-            // WithRelayNetwork(): SDK xin Relay allocation, cấu hình UnityTransport
-            // và tự gọi StartHost cho NetworkManager. Không gọi StartHost thủ công.
-            var options = new SessionOptions { MaxPlayers = LobbyManager.MaxPlayers }
-                .WithRelayNetwork();
-            session = await MultiplayerService.Instance.CreateSessionAsync(options);
-            JoinCode = session.Code;
-            status = "Đang host. Mã phòng: " + JoinCode;
-        }
-        catch (System.Exception e) { status = "Lỗi: " + e.Message; Debug.LogException(e); }
-        finally { busy = false; }
-    }
+        var nm = NetworkManager.Singleton;
+        bool listening = nm != null && nm.IsListening;
+        bool inMatch = listening && SceneManager.GetActiveScene().name == matchSceneName;
 
-    async void JoinAsync()
-    {
-        if (busy || string.IsNullOrWhiteSpace(codeInput)) return;
-        busy = true;
-        try
-        {
-            status = "Đang vào phòng...";
-            await EnsureSignedInAsync();
-            string code = codeInput.Trim().ToUpperInvariant();
-            session = await MultiplayerService.Instance.JoinSessionByCodeAsync(code);
-            status = "Đã vào phòng";
-        }
-        catch (System.Exception e) { status = "Lỗi: " + e.Message; Debug.LogException(e); }
-        finally { busy = false; }
-    }
+        // Mất kết nối khi đang ở scene Match (bấm Disconnect, bị kick, host thoát): về Lobby để vào lại.
+        if (wasListening && !listening && SceneManager.GetActiveScene().name == matchSceneName)
+            SceneManager.LoadScene(lobbySceneName);
+        wasListening = listening;
 
-    async void LeaveAsync()
-    {
-        try
+        if (wasInMatch != inMatch)
         {
-            if (session != null)
-            {
-                if (session.IsHost) await session.AsHost().DeleteAsync();
-                else await session.LeaveAsync();
-                session = null;
-            }
+            wasInMatch = inMatch;
+            Cursor.lockState = inMatch ? CursorLockMode.Locked : CursorLockMode.None;
+            Cursor.visible = !inMatch;
         }
-        catch (System.Exception e) { Debug.LogException(e); }
-        NetworkManager nm = NetworkManager.Singleton;
-        if (nm != null && nm.IsListening) nm.Shutdown();
-        JoinCode = "";
-        status = "Chưa kết nối";
+
+        // Tab: bật/tắt con trỏ trong trận để bấm Disconnect
+        if (inMatch && Input.GetKeyDown(KeyCode.Tab))
+        {
+            bool unlock = Cursor.lockState == CursorLockMode.Locked;
+            Cursor.lockState = unlock ? CursorLockMode.None : CursorLockMode.Locked;
+            Cursor.visible = unlock;
+        }
     }
 
     void OnGUI()
     {
-        NetworkManager nm = NetworkManager.Singleton;
-        GUILayout.BeginArea(new Rect(10, 10, 320, 260), GUI.skin.box);
-        GUILayout.Label(status);
-        if (nm != null && !nm.IsListening && !busy)
+        var nm = NetworkManager.Singleton;
+        if (nm == null) return;
+
+        GUILayout.BeginArea(new Rect(10, 10, 260, 320));
+        GUILayout.Label("LAN IP of this PC: " + localIps);
+
+        if (nm.IsListening)
         {
-            if (GUILayout.Button("Host (tạo phòng)")) HostAsync();
-            GUILayout.Label("Mã phòng:");
-            codeInput = GUILayout.TextField(codeInput, 8);
-            if (GUILayout.Button("Join (vào bằng mã)")) JoinAsync();
+            if (nm.IsServer) GUILayout.Label("Host - Clients: " + nm.ConnectedClientsIds.Count);
+            else GUILayout.Label(nm.IsConnectedClient ? "Connected as client" : "Connecting...");
+            if (GUILayout.Button("Disconnect")) nm.Shutdown();
         }
-        else if (nm != null && nm.IsListening)
+        else
         {
-            if (GUILayout.Button("Rời phòng")) LeaveAsync();
+            GUILayout.Label("Host IP (for Client):");
+            hostIp = GUILayout.TextField(hostIp);
+            GUILayout.Label("Port:");
+            portText = GUILayout.TextField(portText);
+
+            if (GUILayout.Button("Host")) StartNet(nm, true);
+            if (GUILayout.Button("Client")) StartNet(nm, false);
         }
         GUILayout.EndArea();
+    }
+
+    void StartNet(NetworkManager nm, bool host)
+    {
+        if (!ushort.TryParse(portText, out ushort p)) { Debug.LogError("Port không hợp lệ"); return; }
+        var utp = nm.GetComponent<UnityTransport>();
+        if (utp == null) { Debug.LogError("NetworkManager chưa dùng UnityTransport"); return; }
+
+        if (host)
+        {
+            // forceOverrideCommandLineArgs = true: bỏ qua mọi tham số -ip/-port trên dòng lệnh
+            utp.SetConnectionData(true, "127.0.0.1", p, "0.0.0.0");
+            nm.StartHost();
+            Debug.Log("HOST: listen=" + utp.ConnectionData.ServerListenAddress +
+                      " | listenEndpoint=" + utp.ConnectionData.ListenEndPoint);
+        }
+        else
+        {
+            utp.SetConnectionData(hostIp.Trim(), p);
+            nm.StartClient();
+            Debug.Log("CLIENT: ket noi toi " + hostIp.Trim() + ":" + p);
+        }
+    }
+
+    static string GetLocalIps()
+    {
+        var list = new List<string>();
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up) continue;
+            if (ni.NetworkInterfaceType != NetworkInterfaceType.Ethernet &&
+                ni.NetworkInterfaceType != NetworkInterfaceType.Wireless80211) continue;
+            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+                if (ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                    list.Add(ua.Address.ToString());
+        }
+        return list.Count > 0 ? string.Join(", ", list) : "?";
     }
 }

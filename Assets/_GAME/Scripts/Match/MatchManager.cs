@@ -58,6 +58,8 @@ public class MatchManager : NetworkBehaviour
     public readonly NetworkVariable<byte> Reason = new NetworkVariable<byte>((byte)EndReason.None);
     /// <summary>Số giây còn lại của trận, -1 nếu không giới hạn thời gian.</summary>
     public readonly NetworkVariable<int> TimeLeftSeconds = new NetworkVariable<int>(-1);
+    /// <summary>True khi Hunter đang trong cửa sổ reconnect 30 giây. Mọi máy đọc để hiện UI "Đang chờ Hunter..." và để ghế tên lửa tạm dừng đếm ngược.</summary>
+    public readonly NetworkVariable<bool> HunterReconnecting = new NetworkVariable<bool>(false);
 
     public int MachinesRequired => machinesRequired;
     public int TotalMachines { get; private set; }
@@ -92,6 +94,7 @@ public class MatchManager : NetworkBehaviour
     {
         GatesPowered.OnValueChanged -= OnGatesPoweredChanged;
         if (NetworkManager != null) NetworkManager.OnClientDisconnectCallback -= OnClientDisconnected;
+        ReconnectManager.Instance?.Clear();   // xóa tất cả pending state khi match kết thúc / về lobby
         if (Instance == this) Instance = null;
     }
 
@@ -222,21 +225,80 @@ public class MatchManager : NetworkBehaviour
     void OnClientDisconnected(ulong clientId)
     {
         if (!IsServer || IsEnded) return;
-        if (clientId == NetworkManager.ServerClientId) return;   // host rớt: cả phiên kết thúc, không xử lý ở đây
+        if (clientId == NetworkManager.ServerClientId) return;   // host rớt: cả phiên kết thúc
+
+        // Lấy PlayerObject TRƯỚC khi NGO hủy nó (callback này luôn fire trước khi object bị destroy)
+        NetworkObject playerObj = null;
+        if (NetworkManager.ConnectedClients.TryGetValue(clientId, out var c))
+            playerObj = c.PlayerObject;
 
         Role role = RoleAssignments.Get(clientId);
+
+        // Thử lưu state để cho phép reconnect trong 30 giây
+        bool saved = playerObj != null
+                  && ReconnectManager.Instance != null
+                  && ReconnectManager.Instance.SaveAndHold(clientId, playerObj);
+
         if (role == Role.Hunter)
         {
-            End(MatchResult.SurvivorsWin, EndReason.HunterLeft);
+            if (saved)
+            {
+                // Bật cờ "Hunter đang reconnect" → ghế tên lửa tạm dừng đếm ngược
+                HunterReconnecting.Value = true;
+                Debug.Log($"Hunter {clientId} rớt mạng, chờ reconnect {ReconnectManager.Window}s.");
+            }
+            else
+            {
+                // Không lưu được (playerId chưa đăng ký) → kết thúc ngay
+                End(MatchResult.SurvivorsWin, EndReason.HunterLeft);
+            }
             return;
         }
 
-        // Survivor rớt mạng: coi như bị loại (nếu chưa thoát hoặc chưa bị loại trước đó). Không hỗ trợ reconnect.
-        if (resolved.Add(clientId))
+        // Survivor rớt mạng
+        if (saved)
         {
-            Eliminated.Value++;
-            Debug.Log($"Survivor {clientId} rớt mạng, tính là bị loại. Tổng bị loại: {Eliminated.Value}");
+            Debug.Log($"Survivor {clientId} rớt mạng, đang chờ reconnect {ReconnectManager.Window}s.");
         }
+        else if (resolved.Add(clientId))
+        {
+            // Không lưu được state → tính là bị loại ngay
+            Eliminated.Value++;
+            Debug.Log($"Survivor {clientId} rớt mạng (không lưu được state), tính là bị loại. Tổng: {Eliminated.Value}");
+        }
+    }
+
+    /// <summary>
+    /// Gọi bởi ReconnectManager.Update() khi hết 30 giây mà player chưa reconnect.
+    /// Lúc này mới áp dụng hậu quả thực sự.
+    /// </summary>
+    public void FinalizeDisconnect(ReconnectManager.SavedState state)
+    {
+        if (!IsServer || IsEnded) return;
+        if (state.role == Role.Hunter)
+        {
+            HunterReconnecting.Value = false;
+            End(MatchResult.SurvivorsWin, EndReason.HunterLeft);
+        }
+        else
+        {
+            if (resolved.Add(state.oldClientId))
+            {
+                Eliminated.Value++;
+                Debug.Log($"Survivor {state.playerId} hết giờ reconnect, bị loại. Tổng: {Eliminated.Value}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gọi bởi PlayerIdentity.RegisterServerRpc khi reconnect thành công.
+    /// Xóa trạng thái chờ (HunterReconnecting v.v.).
+    /// </summary>
+    public void OnPlayerReconnected(ulong newClientId, Role role)
+    {
+        if (!IsServer) return;
+        if (role == Role.Hunter) HunterReconnecting.Value = false;
+        Debug.Log($"[Reconnect] Client {newClientId} (vai {role}) reconnect thành công.");
     }
 
     // ---------------- Sự kiện trong trận ----------------
@@ -276,6 +338,7 @@ public class MatchManager : NetworkBehaviour
         st.ServerSet(SurvivorHealth.Escaped);
         resolved.Add(clientId);
         Escaped.Value++;
+        ReconnectManager.Instance?.Unregister(clientId);   // không cần theo dõi reconnect nữa
         Debug.Log($"Survivor {clientId} đã thoát. Tổng thoát: {Escaped.Value}");
     }
 
@@ -294,6 +357,7 @@ public class MatchManager : NetworkBehaviour
         st.ServerSet(SurvivorHealth.Eliminated);
         resolved.Add(clientId);
         Eliminated.Value++;
+        ReconnectManager.Instance?.Unregister(clientId);   // không cần theo dõi reconnect nữa
         Debug.Log($"Survivor {clientId} bị loại. Tổng bị loại: {Eliminated.Value}");
     }
 

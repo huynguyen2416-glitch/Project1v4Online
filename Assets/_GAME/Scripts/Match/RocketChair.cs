@@ -122,7 +122,13 @@ public class RocketChair : NetInteractable
         SurvivorState v = GetOccupant();
         if (v == null || v.Current != SurvivorHealth.OnChair)
         {
-            Vacate();       // người đó rớt mạng hoặc trạng thái bị đổi từ nơi khác
+            // Survivor tren ghe vua rot mang: neu con trong reconnect window thi giu ghe, cho ho quay lai
+            if (v == null && OccupantId.Value != None
+                && ReconnectManager.Instance != null
+                && ReconnectManager.Instance.IsInReconnectPending(OccupantId.Value))
+                return;   // giu nguyen, tiep tuc dem nguoc
+
+            Vacate();     // bi loai / duoc cuu / het han reconnect
             return;
         }
 
@@ -135,7 +141,7 @@ public class RocketChair : NetInteractable
             return;
         }
 
-        // Ghi biến mạng theo bước 0.5 giây để đỡ tốn băng thông.
+        // Ghi bien mang theo buoc 0.5 giay de do ton bang thong.
         if (lastSentTimeLeft - serverTimeLeft >= 0.5f)
         {
             lastSentTimeLeft = serverTimeLeft;
