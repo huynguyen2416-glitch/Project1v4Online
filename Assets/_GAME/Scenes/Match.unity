@@ -1221,7 +1221,7 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1420271583}
+      - m_Target: {fileID: 0}
         m_TargetAssemblyTypeName: MatchManager, Assembly-CSharp
         m_MethodName: BackToLobby
         m_Mode: 1
@@ -4458,18 +4458,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 1420271580}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7d11e08d36241d548afe9e864c4dca1e, type: 3}
+  m_Script: {fileID: 11500000, guid: 4a511dc8e4e3ffd4d833b917bda5df81, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MatchManager
   ShowTopMostFoldoutHeaderGroup: 1
   machinesRequired: 5
   machinesToRevealDungeon: 2
-  dungeons:
-  - {fileID: 1040537360233762682}
-  - {fileID: 2049198825}
-  - {fileID: 1743998153}
+  dungeons: []
   lobbyScene: Lobby
   sirenAudio: {fileID: 0}
+  winCount: 3
+  matchDurationSeconds: 600
+  startDelay: 3
 --- !u!1 &1456390996
 GameObject:
   m_ObjectHideFlags: 0

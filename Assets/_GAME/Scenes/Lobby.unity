@@ -2186,10 +2186,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ce1939844986c7c448b5cf00ab8c7f4f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ConnectionUI
-  hostIp: 127.0.0.1
-  port: 7777
-  matchSceneName: Match
-  lobbySceneName: Lobby
 --- !u!114 &1756352020
 MonoBehaviour:
   m_ObjectHideFlags: 0
