@@ -52,11 +52,16 @@ public class InteractUI : MonoBehaviour
 
     static string GetExtraPrompt()
     {
-        PlayerVault pv = PlayerVault.Local;
-        if (pv != null && pv.Target != null) return $"[{pv.Key}] Nhảy qua cửa sổ";
-
+        // Bế / thả người (phím F, Q) đứng đầu để không bị pallet hay cửa sổ gần đó che mất.
         HunterCarry hc = HunterCarry.Local;
         if (hc != null && !string.IsNullOrEmpty(hc.Prompt)) return hc.Prompt;
+
+        // Pallet dùng chung khung lời nhắc này, y như cửa sổ: "[Space] Đập pallet / Trèo qua pallet / Phá pallet".
+        PalletInteract pi = PalletInteract.Local;
+        if (pi != null && pi.Prompt != null) return pi.Prompt;
+
+        PlayerVault pv = PlayerVault.Local;
+        if (pv != null && pv.Target != null) return $"[{pv.Key}] Nhảy qua cửa sổ";
 
         return null;
     }

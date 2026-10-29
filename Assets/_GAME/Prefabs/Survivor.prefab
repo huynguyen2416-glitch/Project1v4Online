@@ -80,7 +80,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 901531268
+  GlobalObjectIdHash: 463580229
   InScenePlacedSourceGlobalObjectIdHash: 901531268
   m_InScenePlacedDisabledByDefault: 0
   DeferredDespawnTick: 0
@@ -283,9 +283,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PalletInteract
   ShowTopMostFoldoutHeaderGroup: 1
-  interactKey: 102
-  palletPromptUI: {fileID: 0}
-  promptLabel: {fileID: 0}
+  minFacing: 0.3
+  scanInterval: 0.1
 --- !u!1001 &2672951682763783715
 PrefabInstance:
   m_ObjectHideFlags: 0

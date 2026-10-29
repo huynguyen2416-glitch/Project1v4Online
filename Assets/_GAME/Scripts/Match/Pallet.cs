@@ -1,106 +1,134 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
 public enum PalletState : byte { Standing = 0, Dropped = 1, Destroyed = 2 }
 
 /// <summary>
-/// Pallet - co che giong Dead by Daylight / Identity V.
+/// Pallet (kiểu Dead by Daylight / Identity V). Phím tương tác: SPACE (xem PalletInteract).
 ///
-/// LUONG HOAT DONG:
-///   Standing  → Survivor nhan F → Dropped (tuc thi + choi anim "Drop")
-///   Dropped   → Hunter dung trong vung ROI XUONG → choan + bi day ra dung phia
-///             → Survivor nhan F → Vault qua (nhu cua so)
-///             → Hunter nhan F (1 lan) → Bat dau pha (1.5s anim) → Destroyed
-///   Destroyed → khong con gi
+///   Standing  → Survivor nhấn Space → Dropped (tức thì + chạy anim "Drop") và choáng Hunter đang đứng trong vùng.
+///   Dropped   → Survivor nhấn Space → trèo qua (giống cửa sổ).
+///             → Hunter nhấn Space   → phá (anim "Break" ~1.5 giây) → Destroyed.
+///   Destroyed → không còn gì.
+///
+/// VÙNG TƯƠNG TÁC giống hệt VaultWindow: hộp chữ nhật rộng "width" (trục X) và sâu "approachDepth" mỗi phía (trục Z),
+/// người chơi phải quay mặt về phía bên kia pallet. Chọn pallet trong Scene view sẽ thấy hộp vàng và 2 chấm xanh (điểm đáp).
 ///
 /// SETUP PREFAB:
-///   Root:       NetworkObject, Rigidbody (isKinematic=true), Pallet.cs, Animator
-///   blockCollider: BoxCollider (non-trigger) - pallet co the chan di chuyen
-///   standingVisual: child mesh pallet dung
-///   droppedVisual:  child mesh pallet nam
-///
-/// TRUC Z (Forward) phai VUONG GOC voi than pallet (huong nguoi chay qua).
+///   Root: NetworkObject, Pallet.cs, Animator (trigger "Drop", "Break"). Trục XANH (Z) của root phải đi XUYÊN qua pallet
+///   (hướng người chạy qua). Chỉ xoay quanh trục Y, Scale (1, 1, 1).
+///   blockCollider: BoxCollider (không tick Is Trigger) chặn đường khi pallet nằm xuống. Script tự bật/tắt.
+///   standingVisual / droppedVisual: 2 child hiển thị pallet đứng / nằm.
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class Pallet : NetworkBehaviour
 {
-    // Danh sach tat ca pallet trong scene - PalletInteract dung de scan
+    /// <summary>Mọi pallet trong scene. PalletInteract dùng để quét.</summary>
     public static readonly List<Pallet> All = new List<Pallet>();
 
-    // ── Inspector ─────────────────────────────────────────────────────────────
+    /// <summary>Server cho phép người chơi đứng lệch thêm chừng này (mét) so với vùng, bù độ trễ mạng.</summary>
+    const float ServerRangeMargin = 1f;
 
     [Header("Visuals & Animator")]
-    [Tooltip("Child GameObject hien thi pallet dung thang")]
+    [Tooltip("Child hiển thị pallet dựng thẳng")]
     [SerializeField] GameObject standingVisual;
-    [Tooltip("Child GameObject hien thi pallet nam xuong (co animator de choi clip Drop)")]
+    [Tooltip("Child hiển thị pallet nằm xuống")]
     [SerializeField] GameObject droppedVisual;
-    [Tooltip("Animator tren root prefab. Trigger: 'Drop', 'Break'")]
-    [SerializeField] Animator   animator;
+    [Tooltip("Animator trên root prefab. Trigger: 'Drop', 'Break'")]
+    [SerializeField] Animator animator;
 
     [Header("Collider")]
-    [Tooltip("BoxCollider (NON-trigger) chan di chuyen khi Dropped. Bat/tat tu dong.")]
+    [Tooltip("BoxCollider (KHÔNG trigger) chặn di chuyển khi Dropped. Bật/tắt tự động.")]
     [SerializeField] Collider blockCollider;
 
-    [Header("Kich thuoc pallet")]
-    [Tooltip("Nua chieu sau pallet theo truc Z (met). Dung de day Hunter ra dung phia khi stun. Chinh khop voi mesh.")]
+    [Header("Vùng tương tác (giống VaultWindow)")]
+    [Tooltip("Bề ngang vùng đứng được (dọc trục X), mét.")]
+    [SerializeField] float width = 2.4f;
+    [Tooltip("Đứng cách tâm pallet tối đa bao nhiêu mét (dọc trục Z) thì được đập / trèo / phá.")]
+    [SerializeField] float approachDepth = 1.5f;
+
+    [Header("Kích thước pallet")]
+    [Tooltip("Nửa chiều sâu pallet theo trục Z (mét). Dùng để đẩy Hunter ra đúng phía khi bị choáng. Chỉnh khớp mesh.")]
     [SerializeField] float halfDepth = 0.7f;
 
-    [Header("Thong so Stun")]
-    [Tooltip("Ban kinh OverlapSphere tai thoi diem pallet roi xuong (met)")]
-    [SerializeField] float stunRadius   = 2.2f;
-    [Tooltip("Thoi gian Hunter bi choan (giay)")]
+    [Header("Choáng Hunter lúc pallet rơi")]
+    [SerializeField] float stunRadius = 2.2f;
     [SerializeField] float stunDuration = 2.5f;
 
-    [Header("Thong so Vault (Survivor)")]
-    [Tooltip("Khoang cach Survivor co the dap pallet (Standing) hoac vault (Dropped)")]
-    [SerializeField] float dropRadius     = 3f;
-    [Tooltip("Reu chi dung trong goc nay (theo X cua pallet) thi moi vault duoc (met)")]
-    [SerializeField] float vaultHalfWidth = 1.2f;
-    [Tooltip("Diem dap sau khi vault qua (met tu tam pallet)")]
-    [SerializeField] float vaultLanding   = 1.3f;
-    [Tooltip("Do nang len khi vault")]
+    [Header("Trèo qua (Survivor)")]
+    [Tooltip("Điểm đáp cách tâm pallet bao xa ở phía bên kia.")]
+    [SerializeField] float vaultLanding = 1.3f;
     [SerializeField] float vaultArcHeight = 0.2f;
-    [Tooltip("Thoi gian vault (giay) - chinh khop clip animation")]
-    [SerializeField] float vaultDuration  = 0.55f;
+    [Tooltip("Thời gian trèo (giây), chỉnh khớp clip animation.")]
+    [SerializeField] float vaultDuration = 0.55f;
 
-    [Header("Thong so Break (Hunter)")]
-    [Tooltip("Khoang cach Hunter co the pha pallet")]
-    [SerializeField] float breakRadius   = 2.5f;
-    [Tooltip("Thoi gian animation pha chay tren pallet truoc khi bien mat (giay)")]
+    [Header("Phá pallet (Hunter)")]
+    [Tooltip("Thời gian animation phá chạy trước khi pallet biến mất (giây). Hunter bị khóa trong lúc này.")]
     [SerializeField] float breakAnimDuration = 1.5f;
 
     // ── NetworkVariables ──────────────────────────────────────────────────────
 
-    /// <summary>Trang thai hien tai cua pallet. Moi may doc de hien thi dung.</summary>
     public readonly NetworkVariable<byte> State =
         new NetworkVariable<byte>((byte)PalletState.Standing);
 
+    /// <summary>True khi Hunter đang phá (animation chạy). Mọi máy đọc để chặn trèo qua pallet đang vỡ.</summary>
+    public readonly NetworkVariable<bool> IsBreaking = new NetworkVariable<bool>(false);
+
+    public PalletState CurrentState => (PalletState)State.Value;
+    public bool IsStanding => CurrentState == PalletState.Standing;
+    public bool IsDropped => CurrentState == PalletState.Dropped;
+    public bool IsDestroyed => CurrentState == PalletState.Destroyed;
+
+    public float VaultLanding => vaultLanding;
+    public float VaultDuration => vaultDuration;
+    public float VaultArcHeight => vaultArcHeight;
+    public float BreakDuration => breakAnimDuration;
+
+    // ── Hình học (giống VaultWindow) ──────────────────────────────────────────
+
+    /// <summary>Hướng đi xuyên pallet (nằm ngang, độ dài 1).</summary>
+    Vector3 Forward
+    {
+        get
+        {
+            Vector3 f = transform.forward;
+            f.y = 0f;
+            return f.sqrMagnitude > 0.0001f ? f.normalized : Vector3.forward;
+        }
+    }
+
+    Vector3 Right => Vector3.Cross(Vector3.up, Forward);
+
     /// <summary>
-    /// True khi Hunter da nhan F va animation pha dang chay.
-    /// Moi may doc de: (1) UI feedback, (2) ngan vault qua pallet dang vo.
+    /// Người chơi có đang đứng trong vùng không? side = +1 nếu đứng phía +Z, -1 nếu phía -Z.
+    /// margin cho phép đứng lệch thêm (server dùng để bù độ trễ).
     /// </summary>
-    public readonly NetworkVariable<bool> IsBreaking =
-        new NetworkVariable<bool>(false);
+    public bool TryGetSide(Vector3 worldPos, out int side, out float distance, float margin = 0f)
+    {
+        Vector3 d = worldPos - transform.position;
+        d.y = 0f;
+        float x = Vector3.Dot(d, Right);
+        float z = Vector3.Dot(d, Forward);
+        side = z >= 0f ? 1 : -1;
+        distance = d.magnitude;
+        return Mathf.Abs(x) <= width * 0.5f + margin && Mathf.Abs(z) <= approachDepth + margin;
+    }
 
-    // ── Properties (public, doc-only) ─────────────────────────────────────────
+    /// <summary>Hướng nhảy khi đứng ở phía fromSide (đi sang phía đối diện).</summary>
+    public Vector3 JumpDirection(int fromSide) => -fromSide * Forward;
 
-    public PalletState CurrentState  => (PalletState)State.Value;
-    public bool IsStanding           => CurrentState == PalletState.Standing;
-    public bool IsDropped            => CurrentState == PalletState.Dropped;
-    public bool IsDestroyed          => CurrentState == PalletState.Destroyed;
-
-    // Doc boi PalletInteract
-    public float DropRadius      => dropRadius;
-    public float BreakRadius     => breakRadius;
-    public float VaultHalfWidth  => vaultHalfWidth;
-    public float VaultLanding    => vaultLanding;
-    public float VaultDuration   => vaultDuration;
-    public float VaultArcHeight  => vaultArcHeight;
+    /// <summary>Điểm đáp ở phía bên kia, giữ nguyên độ cao y của người chơi.</summary>
+    public Vector3 GetLandingPoint(int fromSide, float y)
+    {
+        Vector3 p = transform.position + JumpDirection(fromSide) * vaultLanding;
+        p.y = y;
+        return p;
+    }
 
     // ── Server-only ───────────────────────────────────────────────────────────
 
-    bool  breakInProgress;   // dang dem nguoc 1.5s de pha
+    bool breakInProgress;
     float breakTimer;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -108,66 +136,84 @@ public class Pallet : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         All.Add(this);
-        State.OnValueChanged     += OnStateChanged;
-        IsBreaking.OnValueChanged += OnIsBreakingChanged;
+        State.OnValueChanged += OnStateChanged;
         ApplyState(CurrentState);
     }
 
     public override void OnNetworkDespawn()
     {
         All.Remove(this);
-        State.OnValueChanged     -= OnStateChanged;
-        IsBreaking.OnValueChanged -= OnIsBreakingChanged;
+        State.OnValueChanged -= OnStateChanged;
     }
 
-    void OnStateChanged(byte _, byte next)     => ApplyState((PalletState)next);
-    void OnIsBreakingChanged(bool _, bool now) => /* de trong: hien VFX neu can */ _ = now;
+    void OnStateChanged(byte _, byte next) => ApplyState((PalletState)next);
 
     void ApplyState(PalletState s)
     {
-        bool standing  = s == PalletState.Standing;
-        bool dropped   = s == PalletState.Dropped;
-
-        if (standingVisual) standingVisual.SetActive(standing);
-        if (droppedVisual)  droppedVisual.SetActive(dropped);
-        // blockCollider KHONG co trigger, chi chan di chuyen khi Dropped
-        if (blockCollider)  blockCollider.enabled = dropped;
+        if (standingVisual) standingVisual.SetActive(s == PalletState.Standing);
+        if (droppedVisual) droppedVisual.SetActive(s == PalletState.Dropped);
+        // blockCollider không trigger, chỉ chặn đường khi nằm xuống.
+        if (blockCollider) blockCollider.enabled = s == PalletState.Dropped;
     }
 
-    // ── RPC: Survivor dap pallet xuong ───────────────────────────────────────
+    // ── Server: kiểm tra hợp lệ ───────────────────────────────────────────────
 
-    /// <summary>PalletInteract.HandleSurvivorInput() goi khi Survivor nhan F gan pallet Standing.</summary>
+    /// <summary>
+    /// Server kiểm tra người gửi yêu cầu: trận chưa kết thúc, đúng vai, đang đứng trong vùng pallet (cho dung sai),
+    /// Survivor còn hoạt động (không gục / bị bế / lên ghế), Hunter đang rảnh tay (không đang đánh, không đang bế).
+    /// </summary>
+    bool ServerCheckActor(ulong clientId, Role expected, out GameObject player)
+    {
+        player = null;
+        if (MatchManager.Ended) return false;
+        if (RoleAssignments.Get(clientId) != expected) return false;
+        if (!NetworkManager.ConnectedClients.TryGetValue(clientId, out NetworkClient client) || client.PlayerObject == null) return false;
+
+        player = client.PlayerObject.gameObject;
+        if (!TryGetSide(player.transform.position, out _, out _, ServerRangeMargin)) return false;
+
+        if (expected == Role.Survivor)
+        {
+            SurvivorState st = player.GetComponent<SurvivorState>();
+            return st != null && st.IsActive;
+        }
+
+        HunterAttack atk = player.GetComponent<HunterAttack>();
+        if (atk != null && !atk.ServerCanAct) return false;
+        HunterCarry carry = player.GetComponent<HunterCarry>();
+        if (carry != null && carry.IsCarrying) return false;
+        return true;
+    }
+
+    // ── RPC: Survivor đập pallet xuống ───────────────────────────────────────
+
     [ServerRpc(RequireOwnership = false)]
     public void DropServerRpc(ServerRpcParams p = default)
     {
         if (!IsStanding) return;
-        if (RoleAssignments.Get(p.Receive.SenderClientId) != Role.Survivor) return;
+        if (!ServerCheckActor(p.Receive.SenderClientId, Role.Survivor, out _)) return;
 
         State.Value = (byte)PalletState.Dropped;
         TriggerAnimClientRpc("Drop");
-
-        // STUN: CHI xay ra 1 lan duy nhat tai thoi diem pallet roi xuong.
-        // Sau nay pallet la vat can thuan tuy, khong stun them.
-        StunHuntersInDropZone();
+        StunHuntersInDropZone();   // chỉ xảy ra 1 lần, đúng lúc pallet rơi
     }
 
-    // ── RPC: Hunter pha pallet (nhan 1 lan, anim 1.5s, roi pha) ─────────────
+    // ── RPC: Hunter phá pallet ───────────────────────────────────────────────
 
-    /// <summary>
-    /// PalletInteract.HandleHunterInput() goi khi Hunter nhan F (1 lan) gan pallet Dropped.
-    /// Server bat dau dem nguoc breakAnimDuration giay, roi chuyen sang Destroyed.
-    /// Hunter KHONG bi khoa di chuyen - chi pallet chay animation.
-    /// </summary>
     [ServerRpc(RequireOwnership = false)]
     public void BreakServerRpc(ServerRpcParams p = default)
     {
         if (!IsDropped || breakInProgress) return;
-        if (RoleAssignments.Get(p.Receive.SenderClientId) != Role.Hunter) return;
+        if (!ServerCheckActor(p.Receive.SenderClientId, Role.Hunter, out GameObject hunter)) return;
+
+        // Server cũng coi Hunter là đang bận để không đánh được trong lúc phá.
+        HunterAttack atk = hunter.GetComponent<HunterAttack>();
+        if (atk != null) atk.ServerBeginAction(breakAnimDuration);
 
         breakInProgress = true;
-        breakTimer      = 0f;
+        breakTimer = 0f;
         IsBreaking.Value = true;
-        TriggerAnimClientRpc("Break");   // tat ca may choi animation pha (~1.5s)
+        TriggerAnimClientRpc("Break");
     }
 
     void Update()
@@ -177,70 +223,39 @@ public class Pallet : NetworkBehaviour
         breakTimer += Time.deltaTime;
         if (breakTimer >= breakAnimDuration)
         {
-            // Animation da xong, pha huy pallet
-            breakInProgress  = false;
+            breakInProgress = false;
             IsBreaking.Value = false;
             State.Value = (byte)PalletState.Destroyed;
         }
     }
 
-    // ── Stun khi pallet roi ──────────────────────────────────────────────────
+    // ── Choáng Hunter khi pallet rơi ─────────────────────────────────────────
 
     void StunHuntersInDropZone()
     {
-        // OverlapSphere tai tam pallet, ban kinh stunRadius
-        Collider[] hits = Physics.OverlapSphere(transform.position, stunRadius);
-        foreach (Collider col in hits)
+        foreach (PlayerRoleInfo info in FindObjectsByType<PlayerRoleInfo>(FindObjectsSortMode.None))
         {
-            var roleInfo = col.GetComponent<PlayerRoleInfo>();
-            if (roleInfo == null || roleInfo.CurrentRole != Role.Hunter) continue;
+            if (info.CurrentRole != Role.Hunter) continue;
 
-            var move = col.GetComponent<NetworkPlayerMovement>();
-            if (move == null) continue;
-
-            // Xac dinh phia: dot product (Vector tu tam pallet den Hunter) voi truc Z pallet
-            Vector3 toHunter = col.transform.position - transform.position;
+            Vector3 toHunter = info.transform.position - transform.position;
             toHunter.y = 0f;
-            float dot = Vector3.Dot(toHunter.normalized, transform.forward);
-            // dot >= 0: Hunter phia truoc pallet (+Z); dot < 0: phia sau (-Z)
-            Vector3 pushDir = dot >= 0f ? transform.forward : -transform.forward;
+            if (toHunter.magnitude > stunRadius) continue;
+
+            // Đẩy Hunter ra đúng phía mà họ đang đứng.
+            Vector3 pushDir = Vector3.Dot(toHunter, Forward) >= 0f ? Forward : -Forward;
             Vector3 safePos = transform.position + pushDir * (halfDepth + 0.5f);
-            safePos.y = col.transform.position.y;
+            safePos.y = info.transform.position.y;
 
-            move.SnapTo(safePos, col.transform.eulerAngles.y);  // day ra dung phia
-            move.LockFor(stunDuration);                          // choan X giay
+            HunterAttack atk = info.GetComponent<HunterAttack>();
+            if (atk != null) atk.ServerBeginAction(stunDuration);
 
-            var no = col.GetComponent<NetworkObject>();
-            if (no != null) ShowStunVFXClientRpc(no.NetworkObjectId);
-
-            Debug.Log($"[Pallet] Hunter '{col.name}' bi choan {stunDuration}s (phia {pushDir})");
+            // Di chuyển là Owner-authoritative nên việc đẩy và khóa phải chạy trên MÁY CỦA HUNTER, không phải trên server.
+            StunHunterClientRpc(safePos, info.transform.eulerAngles.y, stunDuration, new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams { TargetClientIds = new[] { info.OwnerClientId } }
+            });
+            Debug.Log($"[Pallet] Hunter {info.OwnerClientId} bị choáng {stunDuration}s");
         }
-    }
-
-    // ── Vault helpers (Survivor) ──────────────────────────────────────────────
-
-    /// <summary>
-    /// Kiem tra Survivor co the vault qua pallet nay khong.
-    /// Tra ve true + side (+1/-1) + distance neu hop le.
-    /// </summary>
-    public bool TryGetVaultSide(Vector3 worldPos, out int side, out float distance)
-    {
-        Vector3 d = worldPos - transform.position;
-        d.y = 0f;
-        float zDot = Vector3.Dot(d, transform.forward);
-        float xDot = Vector3.Dot(d, transform.right);
-        side     = zDot >= 0f ? 1 : -1;
-        distance = d.magnitude;
-        // Survivor phai dung trong vung (ngang <= vaultHalfWidth, khoang cach <= dropRadius)
-        return Mathf.Abs(xDot) <= vaultHalfWidth && distance <= dropRadius;
-    }
-
-    /// <summary>Diem dap sau khi vault (phia doi dien, giu nguyen y).</summary>
-    public Vector3 GetVaultLanding(int fromSide, float y)
-    {
-        Vector3 p = transform.position + (-fromSide * transform.forward) * vaultLanding;
-        p.y = y;
-        return p;
     }
 
     // ── ClientRpc ─────────────────────────────────────────────────────────────
@@ -251,37 +266,46 @@ public class Pallet : NetworkBehaviour
         if (animator != null) animator.SetTrigger(triggerName);
     }
 
+    /// <summary>Chỉ gửi tới máy của Hunter bị choáng: đẩy ra khỏi pallet và khóa di chuyển.</summary>
     [ClientRpc]
-    void ShowStunVFXClientRpc(ulong hunterNetId)
+    void StunHunterClientRpc(Vector3 pos, float yaw, float duration, ClientRpcParams rpcParams = default)
     {
-        if (!NetworkManager.SpawnManager.SpawnedObjects.TryGetValue(hunterNetId, out var no)) return;
-        // Them hieu ung: no.GetComponent<HunterVFX>()?.PlayStun();
-        Debug.Log($"[Pallet] VFX choan Hunter {hunterNetId}");
+        NetworkClient local = NetworkManager.LocalClient;
+        if (local == null || local.PlayerObject == null) return;
+
+        NetworkPlayerMovement move = local.PlayerObject.GetComponent<NetworkPlayerMovement>();
+        if (move == null) return;
+
+        move.SnapTo(pos, yaw);
+        move.LockFor(duration);
     }
 
-    // ── Gizmos (Scene View) ───────────────────────────────────────────────────
+    // ── Gizmos ────────────────────────────────────────────────────────────────
 
     void OnDrawGizmosSelected()
     {
-        // Vung stun (do nhat)
+        Vector3 f = Forward;
+        Quaternion rot = Quaternion.LookRotation(f, Vector3.up);
+
+        // Vùng choáng Hunter (đỏ nhạt)
         Gizmos.color = new Color(1f, 0.2f, 0.2f, 0.2f);
         Gizmos.DrawSphere(transform.position, stunRadius);
 
-        // Vung drop/vault (vang)
-        Gizmos.color = new Color(1f, 0.9f, 0f, 0.15f);
-        Gizmos.DrawSphere(transform.position, dropRadius);
+        // Vùng đứng để đập / trèo / phá (hộp vàng, giống VaultWindow)
+        Gizmos.color = Color.yellow;
+        Gizmos.matrix = Matrix4x4.TRS(transform.position, rot, Vector3.one);
+        Gizmos.DrawWireCube(Vector3.zero, new Vector3(width, 0.1f, approachDepth * 2f));
+        Gizmos.matrix = Matrix4x4.identity;
 
-        // Diem dap vault (xanh la)
+        // Điểm đáp (xanh lá)
         Gizmos.color = Color.green;
-        Vector3 fwd = transform.forward;
-        Gizmos.DrawSphere(transform.position + fwd  * vaultLanding, 0.12f);
-        Gizmos.DrawSphere(transform.position - fwd  * vaultLanding, 0.12f);
-        Gizmos.DrawLine(  transform.position - fwd  * vaultLanding,
-                          transform.position + fwd  * vaultLanding);
+        Gizmos.DrawSphere(transform.position + f * vaultLanding, 0.12f);
+        Gizmos.DrawSphere(transform.position - f * vaultLanding, 0.12f);
+        Gizmos.DrawLine(transform.position - f * vaultLanding, transform.position + f * vaultLanding);
 
-        // HalfDepth (xanh duong) - huong trong/ngoai pallet
+        // Nửa chiều sâu pallet (xanh dương)
         Gizmos.color = Color.cyan;
-        Gizmos.DrawRay(transform.position,  fwd * halfDepth);
-        Gizmos.DrawRay(transform.position, -fwd * halfDepth);
+        Gizmos.DrawRay(transform.position, f * halfDepth);
+        Gizmos.DrawRay(transform.position, -f * halfDepth);
     }
 }

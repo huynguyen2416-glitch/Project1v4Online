@@ -36,6 +36,7 @@ public class PlayerVault : NetworkBehaviour
     PlayerRoleInfo role;
     SurvivorState state;
     PlayerInteractor interactor;
+    PalletInteract pallet;
 
     VaultWindow target;
     int targetSide;
@@ -54,6 +55,7 @@ public class PlayerVault : NetworkBehaviour
         role = GetComponent<PlayerRoleInfo>();           // có thể null
         state = GetComponent<SurvivorState>();           // Hunter không có, null
         interactor = GetComponent<PlayerInteractor>();   // có thể null
+        pallet = GetComponent<PalletInteract>();         // có thể null
     }
 
     public override void OnNetworkSpawn()
@@ -74,6 +76,14 @@ public class PlayerVault : NetworkBehaviour
         bool isHunter = role != null && role.CurrentRole == Role.Hunter;
         bool canAct = isHunter ? hunterCanVault : (state == null || state.IsActive);
         if (!canAct || (move != null && move.IsLocked) || (interactor != null && interactor.IsWorking))
+        {
+            target = null;
+            return;
+        }
+
+        // Cùng phím Space với pallet: đang trèo pallet hoặc có pallet trong vùng thì nhường cho PalletInteract,
+        // tránh một lần nhấn phím chạy cả hai cú nhảy.
+        if (pallet != null && (pallet.IsVaulting || pallet.Target != null))
         {
             target = null;
             return;

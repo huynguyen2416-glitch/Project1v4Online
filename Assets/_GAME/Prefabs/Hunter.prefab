@@ -118,7 +118,7 @@ MonoBehaviour:
   RotationMaxInterpolationTime: 0.1
   ScaleLerpSmoothing: 1
   ScaleMaxInterpolationTime: 0.1
-  AuthorityMode: 0
+  AuthorityMode: 1
   TickSyncChildren: 0
   UseUnreliableDeltas: 0
   SyncPositionX: 1
@@ -189,8 +189,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::HunterAttack
   ShowTopMostFoldoutHeaderGroup: 1
   attackMouseButton: 0
-  reach: 1.8
-  halfAngle: 60
+  reach: 4
+  halfAngle: 112
   cooldown: 1
   lockOnHit: 4.5
   lockOnMiss: 0.8
@@ -267,9 +267,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PalletInteract
   ShowTopMostFoldoutHeaderGroup: 1
-  interactKey: 102
-  palletPromptUI: {fileID: 0}
-  promptLabel: {fileID: 0}
+  minFacing: 0.3
+  scanInterval: 0.1
 --- !u!1001 &1860241275045289963
 PrefabInstance:
   m_ObjectHideFlags: 0

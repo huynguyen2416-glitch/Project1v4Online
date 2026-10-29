@@ -106,3 +106,10 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ss]ceneDependencyCache*
 Assets/Proxy Games/Stylized Nature Kit Lite/Misc/HDRI.hdr
 Assets/Proxy Games/Stylized Nature Kit Lite/Misc/HDRI.hdr.meta
+Assets/TerrainTexturesPackFree/TerrainTextures/GrassUV02.png
+Assets/TerrainTexturesPackFree/TerrainTextures/GrassUV01_N.png
+Assets/TerrainTexturesPackFree/TerrainTextures/GrassUV02_N.png
+Assets/TerrainTexturesPackFree/TerrainTextures/GrassUV01.png.meta
+Assets/TerrainTexturesPackFree/TerrainTextures/GrassUV02.png.meta
+Assets/TerrainTexturesPackFree/TerrainTextures/GrassUV01_N.png.meta
+Assets/TerrainTexturesPackFree/TerrainTextures/GrassUV02_N.png.meta

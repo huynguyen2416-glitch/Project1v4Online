@@ -3,237 +3,203 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Gang vao prefab SURVIVOR va HUNTER (ca 2 dung cung 1 script, tu phan biet vai).
+/// Đập / trèo / phá pallet. Gắn vào prefab SURVIVOR và HUNTER (cùng 1 script, tự phân biệt vai).
+/// Chạy giống PlayerVault (cửa sổ): chỉ trên máy chủ nhân, quét pallet mỗi scanInterval giây, phải quay mặt về phía bên kia,
+/// không hiện giao diện riêng mà để InteractUI đọc PalletInteract.Local.Prompt.
 ///
-/// SURVIVOR:
-///   - Gan pallet STANDING  + nhan F → dap xuong (tuc thi)
-///   - Gan pallet DROPPED   + nhan F → vault qua (giong cua so)
+/// PHÍM: SPACE cho mọi hành động (cố định trong code, không phụ thuộc giá trị lưu trong prefab).
+///   SURVIVOR: pallet đứng → Space = Đập pallet. Pallet nằm → Space = Trèo qua.
+///   HUNTER:   pallet nằm  → Space = Phá pallet (anim ~1.5 giây, Hunter bị khóa trong lúc đó).
+/// Không dùng được khi: đang giải mã / mở cổng, đang bị khóa (đánh, bế...), Survivor đã gục / bị bế / lên ghế / bị loại,
+/// Hunter đang bế người, trận đã kết thúc.
 ///
-/// HUNTER:
-///   - Gan pallet DROPPED   + nhan F (1 lan) → pallet chay animation pha ~1.5s roi bi pha
-///   - Hunter KHONG bi khoa di chuyen; pallet tu chay anim roi bien mat
-///   - Khong the nhan F lan 2 khi pallet dang chay animation pha (IsBreaking=true)
+/// Cùng nằm trên prefab với PlayerVault (cùng phím Space): script này ưu tiên pallet nếu đang có pallet trong vùng,
+/// còn PlayerVault tự nhường (xem PlayerVault.Update). Hai script không bao giờ cùng chạy một cú nhảy.
 /// </summary>
+[RequireComponent(typeof(NetworkPlayerMovement))]
 public class PalletInteract : NetworkBehaviour
 {
-    [Header("Phim tuong tac")]
-    [SerializeField] KeyCode interactKey = KeyCode.Space;
+    /// <summary>PalletInteract của người chơi trên máy này (null nếu chưa spawn).</summary>
+    public static PalletInteract Local { get; private set; }
 
-    [Header("UI Prompt (tuy chon)")]
-    [Tooltip("Panel/GameObject hien thi loi nhac. De trong neu khong co.")]
-    [SerializeField] GameObject palletPromptUI;
-    [Tooltip("Text hien thi noi dung prompt")]
-    [SerializeField] UnityEngine.UI.Text promptLabel;
+    public const KeyCode Key = KeyCode.Space;
 
-    // Cache components
-    PlayerRoleInfo        roleInfo;
+    [Header("Quét")]
+    [Tooltip("1 = phải nhìn thẳng vào pallet, 0 = chỉ cần không quay lưng. Gợi ý 0.3 (giống PlayerVault).")]
+    [Range(-1f, 1f)] [SerializeField] float minFacing = 0.3f;
+    [SerializeField] float scanInterval = 0.1f;
+
     NetworkPlayerMovement move;
-    CharacterController   cc;
-    SurvivorState         survivorState;
+    CharacterController cc;
+    PlayerRoleInfo role;
+    SurvivorState state;
+    HunterCarry carry;
+    PlayerInteractor interactor;
+    PlayerVault vault;
 
-    // Trang thai
-    Pallet nearestPallet;
-    int    vaultSide;
-    bool   vaulting;
-    bool   promptVisible;
-    Pallet breakingPallet;   // pallet Hunter dang pha (null neu khong pha)
+    Pallet target;
+    int targetSide;
+    float nextScan;
+    bool vaulting;
 
-    // ── Spawn ─────────────────────────────────────────────────────────────────
+    /// <summary>Pallet có thể tương tác ngay lúc này (null nếu không có hoặc đang trèo). PlayerVault dùng để nhường.</summary>
+    public Pallet Target => vaulting ? null : target;
+    public bool IsVaulting => vaulting;
+
+    bool IsHunter => role != null && role.CurrentRole == Role.Hunter;
+
+    /// <summary>Lời nhắc cho InteractUI (null nếu không có gì để làm).</summary>
+    public string Prompt
+    {
+        get
+        {
+            Pallet p = Target;
+            if (p == null || p.IsDestroyed) return null;
+            if (IsHunter) return $"[{Key}] Phá pallet";
+            return p.IsStanding ? $"[{Key}] Đập pallet" : $"[{Key}] Trèo qua pallet";
+        }
+    }
+
+    void Awake()
+    {
+        move = GetComponent<NetworkPlayerMovement>();
+        cc = GetComponent<CharacterController>();
+        role = GetComponent<PlayerRoleInfo>();
+        state = GetComponent<SurvivorState>();           // Hunter không có, null
+        carry = GetComponent<HunterCarry>();             // Survivor không có, null
+        interactor = GetComponent<PlayerInteractor>();   // có thể null
+        vault = GetComponent<PlayerVault>();             // có thể null
+    }
 
     public override void OnNetworkSpawn()
     {
-        if (!IsOwner) { enabled = false; return; }
-        roleInfo      = GetComponent<PlayerRoleInfo>();
-        move          = GetComponent<NetworkPlayerMovement>();
-        cc            = GetComponent<CharacterController>();
-        survivorState = GetComponent<SurvivorState>();
+        enabled = IsOwner;   // người khác không chạy Update của script này
+        if (IsOwner) Local = this;
     }
 
-    // ── Update ────────────────────────────────────────────────────────────────
+    public override void OnNetworkDespawn()
+    {
+        if (Local == this) Local = null;
+        target = null;
+    }
 
     void Update()
     {
-        if (vaulting) return;
+        if (!IsSpawned || vaulting) return;
 
-        bool isHunter = roleInfo != null && roleInfo.CurrentRole == Role.Hunter;
+        // Đang nhảy cửa sổ thì không làm gì với pallet.
+        if (vault != null && vault.IsVaulting) { target = null; return; }
 
-        // Theo doi trang thai pha: khi IsBreaking het hoac pallet bi pha xong -> mo khoa
-        if (breakingPallet != null)
+        bool isHunter = IsHunter;
+        bool canAct = isHunter
+            ? (carry == null || !carry.IsCarrying)
+            : (state == null || state.IsActive);
+
+        if (!canAct || MatchManager.Ended ||
+            (move != null && move.IsLocked) ||
+            (interactor != null && interactor.IsWorking))
         {
-            bool stillBreaking = breakingPallet.IsDropped && breakingPallet.IsBreaking.Value;
-            if (!stillBreaking)
-            {
-                move.SetLocked(this, false);
-                breakingPallet = null;
-            }
+            target = null;
+            return;
         }
 
-        // Tim pallet phu hop
-        nearestPallet = isHunter
-            ? FindNearestDropped()
-            : FindNearestForSurvivor(out vaultSide);
+        if (Time.time >= nextScan)
+        {
+            nextScan = Time.time + scanInterval;
+            FindTarget(isHunter);
+        }
 
-        UpdatePrompt(isHunter);
-
-        if (nearestPallet == null) return;
-
-        if (isHunter) HandleHunterInput();
-        else          HandleSurvivorInput();
+        if (target != null && Input.GetKeyDown(Key)) Act(isHunter);
     }
 
-    // ── Tim pallet ────────────────────────────────────────────────────────────
-
-    /// <summary>Survivor: tim pallet Standing de dap, hoac pallet Dropped de vault.</summary>
-    Pallet FindNearestForSurvivor(out int side)
+    void FindTarget(bool isHunter)
     {
-        side = 1;
-        Pallet best  = null;
-        float  bestD = float.MaxValue;
-
+        target = null;
+        float best = float.MaxValue;
         foreach (Pallet p in Pallet.All)
         {
             if (p == null || p.IsDestroyed) continue;
 
-            if (p.IsStanding)
+            if (isHunter)
             {
-                float d = Vector3.Distance(transform.position, p.transform.position);
-                if (d <= p.DropRadius && d < bestD)
-                { bestD = d; best = p; side = 1; }
+                // Hunter chỉ phá pallet đã nằm xuống và chưa đang bị phá.
+                if (!p.IsDropped || p.IsBreaking.Value) continue;
             }
-            else if (p.IsDropped)
+            else if (p.IsDropped && p.IsBreaking.Value)
             {
-                if (p.TryGetVaultSide(transform.position, out int s, out float d) && d < bestD)
-                { bestD = d; best = p; side = s; }
+                continue;   // pallet đang vỡ: Survivor không trèo được
             }
-        }
-        return best;
-    }
 
-    /// <summary>Hunter: tim pallet Dropped gan nhat (chua hoac dang bi pha deu hien prompt).</summary>
-    Pallet FindNearestDropped()
-    {
-        Pallet best  = null;
-        float  bestD = float.MaxValue;
-        foreach (Pallet p in Pallet.All)
-        {
-            if (p == null || !p.IsDropped) continue;
-            float d = Vector3.Distance(transform.position, p.transform.position);
-            if (d <= p.BreakRadius && d < bestD) { bestD = d; best = p; }
-        }
-        return best;
-    }
+            if (!p.TryGetSide(transform.position, out int side, out float dist)) continue;
 
-    // ── Input: Survivor ───────────────────────────────────────────────────────
+            // Phải đang quay mặt về phía bên kia pallet.
+            if (Vector3.Dot(transform.forward, p.JumpDirection(side)) < minFacing) continue;
 
-    void HandleSurvivorInput()
-    {
-        // Khong tuong tac khi dang bi khoa (bi bat, tren ghe, ...)
-        if (move != null && move.IsLocked) return;
-        // Survivor da het hoat dong (bi loai, thoat) -> khong vault
-        if (survivorState != null && survivorState.IsOut) return;
-
-        if (!Input.GetKeyDown(interactKey)) return;
-
-        if (nearestPallet.IsStanding)
-        {
-            // Dap pallet xuong
-            nearestPallet.DropServerRpc();
-        }
-        else if (nearestPallet.IsDropped && !nearestPallet.IsBreaking.Value)
-        {
-            // Vault qua (neu pallet dang bi pha thi khong vault)
-            StartCoroutine(VaultRoutine(nearestPallet, vaultSide));
+            if (dist < best) { best = dist; target = p; targetSide = side; }
         }
     }
 
-    IEnumerator VaultRoutine(Pallet pallet, int side)
+    void Act(bool isHunter)
     {
-        vaulting      = true;
-        nearestPallet = null;
+        Pallet p = target;
 
-        move.SetVaulting(true);
+        if (isHunter)
+        {
+            if (!p.IsDropped || p.IsBreaking.Value) return;
+            // Khóa Hunter NGAY tại máy chủ nhân trong đúng thời gian anim phá. Không chờ NetworkVariable IsBreaking
+            // từ server vì nó đến trễ một RTT, sẽ làm khóa nhả sớm trên client.
+            move.LockFor(p.BreakDuration);
+            p.BreakServerRpc();
+        }
+        else if (p.IsStanding)
+        {
+            p.DropServerRpc();
+        }
+        else if (p.IsDropped && !p.IsBreaking.Value)
+        {
+            StartCoroutine(VaultRoutine(p, targetSide));
+        }
+    }
+
+    IEnumerator VaultRoutine(Pallet p, int side)
+    {
+        vaulting = true;
+        target = null;
+
+        move.SetVaulting(true);   // khóa di chuyển thường, báo MoveState.Vaulting cho mọi máy
         if (cc != null) cc.enabled = false;
 
         Vector3 start = transform.position;
-        Vector3 end   = pallet.GetVaultLanding(side, start.y);
+        Vector3 end = p.GetLandingPoint(side, start.y);
 
-        // Quay mat ve huong vault
-        Vector3 dir = end - start; dir.y = 0f;
+        Vector3 dir = end - start;
+        dir.y = 0f;
         if (dir.sqrMagnitude > 0.0001f)
             transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
 
-        float duration   = Mathf.Max(0.1f, pallet.VaultDuration);
-        bool  interrupted = false;
+        float duration = Mathf.Max(0.1f, p.VaultDuration);
+        float arc = p.VaultArcHeight;
+        bool interrupted = false;
 
         for (float t = 0f; t < duration; t += Time.deltaTime)
         {
             float k = t / duration;
             Vector3 pos = Vector3.Lerp(start, end, k);
-            pos.y += Mathf.Sin(k * Mathf.PI) * pallet.VaultArcHeight;
+            pos.y += Mathf.Sin(k * Mathf.PI) * arc;
             transform.position = pos;
 
-            // Dung lai neu pallet bi pha giua chung (Hunter pha pallet -> vault abort)
-            if (pallet.IsDestroyed) { interrupted = true; break; }
-            // Survivor bi danh guc giua chung
-            if (survivorState != null && !survivorState.IsActive) { interrupted = true; break; }
+            // Pallet bị phá / biến mất, hoặc bị đánh gục / loại giữa chừng: dừng tại chỗ.
+            if (p == null || p.IsDestroyed) { interrupted = true; break; }
+            if (state != null && !state.IsActive) { interrupted = true; break; }
 
             yield return null;
         }
 
         if (!interrupted) transform.position = end;
-        if (cc != null) cc.enabled = survivorState == null || !survivorState.IsOut;
+
+        // Nếu vừa thoát / bị loại giữa chừng thì SurvivorState đã tắt CharacterController, đừng bật lại.
+        if (cc != null) cc.enabled = state == null || !state.IsOut;
         move.SetVaulting(false);
         vaulting = false;
-    }
-
-    // ── Input: Hunter ─────────────────────────────────────────────────────────
-
-    void HandleHunterInput()
-    {
-        // Dang bi khoa (dang pha) -> khong lam gi
-        if (breakingPallet != null) return;
-
-        // Khong pha khi pallet dang chay animation pha (tranh double-trigger)
-        if (nearestPallet.IsBreaking.Value) return;
-
-        if (Input.GetKeyDown(interactKey))
-        {
-            // Khoa di chuyen Hunter trong luc pallet chay animation pha
-            move.SetLocked(this, true);
-            breakingPallet = nearestPallet;
-            nearestPallet.BreakServerRpc();
-        }
-    }
-
-    // ── Prompt UI ─────────────────────────────────────────────────────────────
-
-    void UpdatePrompt(bool isHunter)
-    {
-        bool show = nearestPallet != null;
-        if (show != promptVisible)
-        {
-            promptVisible = show;
-            if (palletPromptUI != null) palletPromptUI.SetActive(show);
-        }
-        if (!show || promptLabel == null) return;
-
-        if (isHunter)
-        {
-            promptLabel.text = nearestPallet.IsBreaking.Value
-                ? "Dang pha pallet..."
-                : $"[{interactKey}] Pha pallet";
-        }
-        else if (nearestPallet.IsStanding)
-            promptLabel.text = $"[{interactKey}] Dap pallet";
-        else
-            promptLabel.text = $"[{interactKey}] Treo qua";
-    }
-
-    // ── Cleanup ───────────────────────────────────────────────────────────────
-
-    public override void OnNetworkDespawn()
-    {
-        if (breakingPallet != null) { move?.SetLocked(this, false); breakingPallet = null; }
-        if (palletPromptUI != null) palletPromptUI.SetActive(false);
     }
 }
