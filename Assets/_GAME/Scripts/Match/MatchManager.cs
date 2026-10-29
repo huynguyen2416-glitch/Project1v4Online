@@ -80,7 +80,8 @@ public class MatchManager : NetworkBehaviour
         Instance = this;
         TotalMachines = FindObjectsByType<CipherMachine>(FindObjectsSortMode.None).Length;
         GatesPowered.OnValueChanged += OnGatesPoweredChanged;   // còi: chạy trên mọi máy
-
+        Result.OnValueChanged += OnResultChanged;               // <-- THÊM
+        if (RoomService.Instance != null) RoomService.Instance.SetInMatch(true);
         if (IsServer)
         {
             PickDungeon();
@@ -93,6 +94,7 @@ public class MatchManager : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         GatesPowered.OnValueChanged -= OnGatesPoweredChanged;
+        Result.OnValueChanged -= OnResultChanged;
         if (NetworkManager != null) NetworkManager.OnClientDisconnectCallback -= OnClientDisconnected;
         ReconnectManager.Instance?.Clear();   // xóa tất cả pending state khi match kết thúc / về lobby
         if (Instance == this) Instance = null;
@@ -102,7 +104,11 @@ public class MatchManager : NetworkBehaviour
     {
         if (newValue && sirenAudio != null) sirenAudio.Play();
     }
-
+    void OnResultChanged(byte oldValue, byte newValue)
+    {
+        if (newValue != (byte)MatchResult.None && RoomService.Instance != null)
+            RoomService.Instance.SetInMatch(false);   // trận đã có kết quả: không tự nối lại nữa
+    }
     void PickDungeon()
     {
         var pool = new List<Dungeon>();
@@ -235,8 +241,7 @@ public class MatchManager : NetworkBehaviour
         Role role = RoleAssignments.Get(clientId);
 
         // Thử lưu state để cho phép reconnect trong 30 giây
-        bool saved = playerObj != null
-                  && ReconnectManager.Instance != null
+        bool saved = ReconnectManager.Instance != null
                   && ReconnectManager.Instance.SaveAndHold(clientId, playerObj);
 
         if (role == Role.Hunter)

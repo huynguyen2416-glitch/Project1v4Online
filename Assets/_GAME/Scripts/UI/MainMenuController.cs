@@ -24,7 +24,7 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] Text statusText;
     [Tooltip("ConnectionUI cũ (nhập IP). Nên TẮT sẵn; chỉ bật khi bấm Chơi LAN.")]
     [SerializeField] Behaviour lanConnectionUI;
-
+    [SerializeField] InputField nameInput;
     [Header("Lobby")]
     [SerializeField] Text roomCodeText;
     [SerializeField] Button copyCodeButton;
@@ -49,6 +49,7 @@ public class MainMenuController : MonoBehaviour
         if (lanButton != null) lanButton.onClick.AddListener(OnLan);
         if (copyCodeButton != null) copyCodeButton.onClick.AddListener(OnCopy);
         if (leaveButton != null) leaveButton.onClick.AddListener(OnLeave);
+        if (nameInput != null) { nameInput.characterLimit = PlayerProfile.MaxLength; nameInput.text = PlayerProfile.Name; }
 
         if (lanConnectionUI != null) lanConnectionUI.enabled = false;
         if (RoomService.Instance != null) RoomService.Instance.OnStatus += SetStatus;
@@ -101,6 +102,7 @@ public class MainMenuController : MonoBehaviour
 
     async void OnCreate()
     {
+        if (nameInput != null) PlayerProfile.Name = nameInput.text;
         if (RoomService.Instance == null) { SetStatus("Thiếu RoomService trên object NetworkManager."); return; }
         SetBusy(true);
         await RoomService.Instance.CreateRoomAsync();   // thông báo kết quả qua OnStatus
@@ -109,6 +111,7 @@ public class MainMenuController : MonoBehaviour
 
     async void OnJoin()
     {
+        if (nameInput != null) PlayerProfile.Name = nameInput.text;
         if (RoomService.Instance == null) { SetStatus("Thiếu RoomService trên object NetworkManager."); return; }
         SetBusy(true);
         await RoomService.Instance.JoinRoomAsync(codeInput != null ? codeInput.text : "");
@@ -117,6 +120,7 @@ public class MainMenuController : MonoBehaviour
 
     void OnLan()
     {
+        if (nameInput != null) PlayerProfile.Name = nameInput.text;
         if (lanConnectionUI != null) lanConnectionUI.enabled = true;
         SetStatus("Chơi LAN: nhập IP của host ở khung bên trái rồi bấm Host hoặc Client.");
     }

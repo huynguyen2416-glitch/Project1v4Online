@@ -19,7 +19,7 @@ using UnityEngine;
 [RequireComponent(typeof(NetworkPlayerMovement))]
 public class PalletInteract : NetworkBehaviour
 {
-    /// <summary>PalletInteract của người chơi trên máy này (null nếu chưa spawn).</summary>
+    /// <summary>PalletIntera   ct của người chơi trên máy này (null nếu chưa spawn).</summary>
     public static PalletInteract Local { get; private set; }
 
     public const KeyCode Key = KeyCode.Space;
@@ -133,7 +133,7 @@ public class PalletInteract : NetworkBehaviour
             if (!p.TryGetSide(transform.position, out int side, out float dist)) continue;
 
             // Phải đang quay mặt về phía bên kia pallet.
-            if (Vector3.Dot(transform.forward, p.JumpDirection(side)) < minFacing) continue;
+           if (isHunter && Vector3.Dot(transform.forward, p.JumpDirection(side)) < minFacing) continue;
 
             if (dist < best) { best = dist; target = p; targetSide = side; }
         }

@@ -1620,8 +1620,12 @@ PrefabInstance:
       value: Road_set_v1_s_tile_2 (4)
       objectReference: {fileID: 0}
     - target: {fileID: 4000013974182346, guid: a4ea7ad660a6e4241aff4002d350fe80, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.0076
+      objectReference: {fileID: 0}
+    - target: {fileID: 4000013974182346, guid: a4ea7ad660a6e4241aff4002d350fe80, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 87.63
+      value: 87.5535
       objectReference: {fileID: 0}
     - target: {fileID: 4000013974182346, guid: a4ea7ad660a6e4241aff4002d350fe80, type: 3}
       propertyPath: m_LocalPosition.y

@@ -1,42 +1,49 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Unity.Netcode;
 using Unity.Services.Authentication;
 using Unity.Services.Core;
 using Unity.Services.Multiplayer;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Chơi qua INTERNET (WAN) bằng Unity Multiplayer Services (Sessions + Relay). Gắn vào GameObject NetworkManager.
-/// - Tạo phòng: server tạo 1 session có Relay, trả về MÃ PHÒNG. SDK tự khởi động Host của NetworkManager.
-/// - Vào phòng: nhập mã phòng ở máy khác (khác mạng cũng được), SDK tự kết nối Client qua Relay.
-/// Không cần mở port, không cần IP. Sau khi kết nối, phần còn lại (LobbyManager, chọn vai, vào trận) giữ nguyên như chơi LAN.
-/// Yêu cầu: package Multiplayer Services (com.unity.services.multiplayer), project đã liên kết Unity Cloud project
-/// và đã bật dịch vụ (Authentication ẩn danh, Relay) trong Unity Dashboard.
+/// - Tạo phòng: tạo session có Relay, trả về MÃ PHÒNG; SDK tự khởi động Host cho NetworkManager.
+/// - Vào phòng: nhập mã phòng; SDK tự kết nối Client qua Relay.
+/// - Mất kết nối giữa trận: tự thử nối lại (ReconnectToSessionAsync, nếu hỏng thì vào lại bằng mã).
+/// - Bị server từ chối / host đóng phòng: hiện lý do và về Lobby, KHÔNG thử nối lại.
 /// </summary>
 public class RoomService : MonoBehaviour
 {
     public static RoomService Instance { get; private set; }
 
-    [SerializeField] int maxPlayers = 5;
-    [Tooltip("Để trống: tự dùng tên theo process để nhiều cửa sổ cùng 1 máy không trùng tài khoản ẩn danh.")]
+    [Tooltip("Chỉ dùng khi test nhiều cửa sổ. Để trống: Editor tự dùng tên theo PID, bản build dùng tài khoản mặc định (PlayerId bền qua các lần mở game).")]
     [SerializeField] string profile = "";
+    [SerializeField] string lobbySceneName = "Lobby";
+    [SerializeField] int reconnectAttempts = 3;
+    [SerializeField] float reconnectDelaySeconds = 3f;
 
     /// <summary>Phòng đang tham gia (null nếu chưa vào).</summary>
     public ISession Session { get; private set; }
     public string RoomCode => Session != null ? Session.Code : "";
     public bool InRoom => Session != null;
     public bool Busy { get; private set; }
+    public bool IsReconnecting => reconnecting;
 
-    /// <summary>Báo trạng thái ngắn cho UI (đang tạo phòng, lỗi, đã vào phòng...).</summary>
+    /// <summary>Báo trạng thái ngắn cho UI (đang tạo phòng, lỗi, bị từ chối, đang nối lại...).</summary>
     public event Action<string> OnStatus;
 
-    // ── Reconnect ───────────────────────────────────────────────────────────
-    string lastRoomCode  = "";
-    bool intentionalLeave;   // set true khi user chủ động bấm Leave
-    bool reconnecting;       // đang trong vòng retry
-    bool reconnectSuccess;
+    string lastRoomCode = "";
+    string lastSessionId = "";
+    bool intentionalLeave;   // true khi chính người dùng bấm Rời phòng
+    bool reconnecting;
+    bool inMatch;            // MatchManager báo: đang trong trận (chỉ khi đó mới tự nối lại)
+    bool goingToLobby;
     bool reconnectDone;
+    bool reconnectSuccess;
 
     void Awake()
     {
@@ -46,82 +53,187 @@ public class RoomService : MonoBehaviour
 
     void Start()
     {
-        // Hook disconnect callback de phat hien mat ket noi ngoai y muon
-        var nm = NetworkManager.Singleton;
+        if (Instance != this) return;
+        NetworkManager nm = NetworkManager.Singleton;
         if (nm != null) nm.OnClientDisconnectCallback += OnNetworkDisconnect;
     }
 
     void OnDestroy()
     {
-        var nm = NetworkManager.Singleton;
+        if (Instance != this) return;
+        NetworkManager nm = NetworkManager.Singleton;
         if (nm != null) nm.OnClientDisconnectCallback -= OnNetworkDisconnect;
+        Instance = null;
     }
 
-    // Phat hien mat ket noi (chi xu ly phia CLIENT)
+    /// <summary>MatchManager gọi: true khi vào trận, false khi trận có kết quả.</summary>
+    public void SetInMatch(bool on) { inMatch = on; }
+
+    // ============================== Mất kết nối ==============================
+
     void OnNetworkDisconnect(ulong clientId)
     {
-        var nm = NetworkManager.Singleton;
-        if (nm == null || nm.IsServer) return;    // server side: bo qua
-        if (intentionalLeave) { intentionalLeave = false; return; }  // user tu y roi phong
-        if (reconnecting) return;                  // dang thu lai roi
-        if (string.IsNullOrEmpty(lastRoomCode)) return;  // chua vao phong nao
-        // Chi reconnect khi dang trong tran (MatchManager ton tai)
-        if (MatchManager.Instance == null) return;
+        NetworkManager nm = NetworkManager.Singleton;
+        if (nm == null || nm.IsServer) return;                      // chỉ xử lý phía client
+        if (intentionalLeave) { intentionalLeave = false; return; } // người dùng tự rời
+        if (reconnecting) return;
 
-        Status("Mat ket noi! Dang thu ket noi lai...");
-        StartCoroutine(AutoReconnectRoutine());
+        // 1) Server chủ động từ chối hoặc đá ra (sai phiên bản, phòng đầy, host đóng phòng...): có lý do, không nối lại.
+        string reason = nm.DisconnectReason;
+        if (!string.IsNullOrEmpty(reason))
+        {
+            Status("Bị ngắt kết nối: " + reason);
+            ForgetRoom();
+            GoToLobby();
+            return;
+        }
+
+        // 2) Rớt mạng ngoài ý muốn khi đang trong trận: tự nối lại.
+        if (inMatch && !string.IsNullOrEmpty(lastRoomCode))
+        {
+            StartCoroutine(AutoReconnectRoutine());
+            return;
+        }
+
+        // 3) Rớt mạng ở phòng chờ hoặc không có mã phòng (LAN): về menu, dọn phiên để có thể tạo/vào phòng lại.
+        Status("Mất kết nối.");
+        ForgetRoom();
+        GoToLobby();
     }
 
-    System.Collections.IEnumerator AutoReconnectRoutine()
+    IEnumerator AutoReconnectRoutine()
     {
         reconnecting = true;
-        string code = lastRoomCode;
+        Status("Mất kết nối! Đang thử nối lại...");
 
-        // Shut down NetworkManager cu (neu con)
-        var nm = NetworkManager.Singleton;
-        if (nm != null && nm.IsListening)
+        // Chờ NetworkManager tắt hẳn (không dùng thời gian cố định).
+        NetworkManager nm = NetworkManager.Singleton;
+        float waited = 0f;
+        while (nm != null && (nm.IsListening || nm.ShutdownInProgress))
         {
-            nm.Shutdown();
-            yield return new WaitForSeconds(0.5f);
+            waited += Time.unscaledDeltaTime;
+            if (waited > 1f && nm.IsListening && !nm.ShutdownInProgress) nm.Shutdown();
+            yield return null;
         }
+
+        // Giữ lại tham chiếu cũ, KHÔNG rời phòng: còn là thành viên phòng thì mới Reconnect được.
+        ISession stale = Session;
         Session = null;
 
-        for (int attempt = 1; attempt <= 3; attempt++)
+        for (int attempt = 1; attempt <= reconnectAttempts; attempt++)
         {
-            Status($"Ket noi lai... ({attempt}/3)");
-            yield return new WaitForSeconds(3f);
+            Status("Kết nối lại... (" + attempt + "/" + reconnectAttempts + ")");
+            yield return new WaitForSecondsRealtime(reconnectDelaySeconds * attempt);   // chờ lâu dần
 
             reconnectDone = false;
             reconnectSuccess = false;
-            DoReconnectAsync(code);
+            ReconnectAttempt();
             yield return new WaitUntil(() => reconnectDone);
 
             if (reconnectSuccess)
             {
-                Status("Da ket noi lai thanh cong!");
+                Status("Đã nối lại, đang vào trận...");
                 reconnecting = false;
                 yield break;
             }
         }
 
-        // Tat ca 3 lan deu that bai
-        Status("Khong the ket noi lai sau 3 lan thu. Ve man hinh chinh.");
+        Status("Không nối lại được sau " + reconnectAttempts + " lần thử. Về phòng chờ.");
         reconnecting = false;
-        lastRoomCode = "";
+        ForgetRoom();
+        LeaveQuietly(stale);
+        GoToLobby();
     }
 
-    // async void chay tren Unity main thread (SynchronizationContext), an toan voi Unity API
-    async void DoReconnectAsync(string code)
+    // async void chạy trên luồng chính của Unity (SynchronizationContext).
+    async void ReconnectAttempt()
     {
-        reconnectSuccess = await JoinRoomAsync(code);
+        bool ok = false;
+        try { ok = await ReconnectOrJoinAsync(); }
+        catch (Exception e) { Debug.LogWarning("[Room] Reconnect lỗi: " + e.Message); }
+        reconnectSuccess = ok;
         reconnectDone = true;
+    }
+
+    async Task<bool> ReconnectOrJoinAsync()
+    {
+        if (!await InitAsync()) return false;
+        LocalIdentity.ApplyConnectionData(NetworkManager.Singleton);
+
+        // Cách 1 (chuẩn): còn là thành viên phòng thì Reconnect.
+        if (!string.IsNullOrEmpty(lastSessionId))
+        {
+            Busy = true;
+            try
+            {
+                Session = await MultiplayerService.Instance.ReconnectToSessionAsync(lastSessionId);
+                lastRoomCode = Session.Code;
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Room] ReconnectToSession thất bại, thử vào lại bằng mã: " + e.Message);
+                Session = null;
+            }
+            finally { Busy = false; }
+        }
+
+        // Cách 2: đã bị gỡ khỏi phòng thì vào lại bằng mã.
+        return await JoinRoomAsync(lastRoomCode);
+    }
+
+    // ============================== Dọn dẹp / về Lobby ==============================
+
+    void ForgetRoom()
+    {
+        inMatch = false;
+        lastRoomCode = "";
+        lastSessionId = "";
+        ISession s = Session;
+        Session = null;
+        LeaveQuietly(s);
+    }
+
+    async void LeaveQuietly(ISession s)
+    {
+        if (s == null) return;
+        try { await s.LeaveAsync(); }
+        catch (Exception e) { Debug.Log("[Room] (bỏ qua) " + e.Message); }
+    }
+
+    void GoToLobby()
+    {
+        if (goingToLobby) return;
+        goingToLobby = true;
+        StartCoroutine(GoToLobbyRoutine());
+    }
+
+    IEnumerator GoToLobbyRoutine()
+    {
+        // Chờ NetworkManager tắt hẳn rồi mới đổi scene.
+        NetworkManager nm = NetworkManager.Singleton;
+        float waited = 0f;
+        while (nm != null && (nm.IsListening || nm.ShutdownInProgress))
+        {
+            waited += Time.unscaledDeltaTime;
+            if (waited > 1f && nm.IsListening && !nm.ShutdownInProgress) nm.Shutdown();
+            yield return null;
+        }
+
+        Cursor.lockState = CursorLockMode.None;   // trong trận con trỏ bị khóa
+        Cursor.visible = true;
+        if (SceneManager.GetActiveScene().name != lobbySceneName)
+            SceneManager.LoadScene(lobbySceneName);
+        goingToLobby = false;
     }
 
     void Status(string msg)
     {
         Debug.Log("[Room] " + msg);
-        OnStatus?.Invoke(msg);
+        if (OnStatus != null) OnStatus(msg);
     }
+
+    // ============================== Dịch vụ Unity ==============================
 
     async Task<bool> InitAsync()
     {
@@ -129,8 +241,15 @@ public class RoomService : MonoBehaviour
         {
             if (UnityServices.State == ServicesInitializationState.Uninitialized)
             {
-                string p = string.IsNullOrWhiteSpace(profile) ? "p" + System.Diagnostics.Process.GetCurrentProcess().Id : profile;
-                var options = new InitializationOptions().SetProfile(p);
+                string p = profile;
+#if UNITY_EDITOR
+                // Nhiều cửa sổ Editor cùng máy phải có tài khoản ẩn danh khác nhau. Bản build KHÔNG làm vậy,
+                // để PlayerId giữ nguyên giữa các lần mở game (cần cho reconnect sau khi crash).
+                if (string.IsNullOrWhiteSpace(p)) p = "p" + System.Diagnostics.Process.GetCurrentProcess().Id;
+#endif
+                InitializationOptions options = string.IsNullOrWhiteSpace(p)
+                    ? new InitializationOptions()
+                    : new InitializationOptions().SetProfile(p);
                 await UnityServices.InitializeAsync(options);
             }
             if (!AuthenticationService.Instance.IsSignedIn)
@@ -151,19 +270,23 @@ public class RoomService : MonoBehaviour
         Busy = true;
         try
         {
-            Status("Dang tao phong...");
+            Status("Đang tạo phòng...");
             if (!await InitAsync()) return false;
+            LocalIdentity.ApplyConnectionData(NetworkManager.Singleton);
 
-            var options = new SessionOptions { MaxPlayers = maxPlayers }.WithRelayNetwork();
+            SessionOptions options = new SessionOptions { MaxPlayers = LobbyManager.MaxPlayers }.WithRelayNetwork();
             Session = await MultiplayerService.Instance.CreateSessionAsync(options);
-            lastRoomCode = Session.Code;   // luu code de reconnect
-            Status("Da tao phong. Ma phong: " + Session.Code);
+            lastRoomCode = Session.Code;
+            lastSessionId = Session.Id;
+            intentionalLeave = false;
+            inMatch = false;
+            Status("Đã tạo phòng. Mã phòng: " + Session.Code);
             return true;
         }
         catch (Exception e)
         {
             Session = null;
-            Status("Khong tao duoc phong: " + e.Message);
+            Status("Không tạo được phòng: " + e.Message);
             return false;
         }
         finally { Busy = false; }
@@ -174,37 +297,51 @@ public class RoomService : MonoBehaviour
     {
         if (Busy || InRoom) return false;
         code = (code ?? "").Trim().ToUpperInvariant();
-        if (code.Length == 0) { Status("Hay nhap ma phong."); return false; }
+        if (code.Length == 0) { Status("Hãy nhập mã phòng."); return false; }
 
         Busy = true;
         try
         {
-            Status("Dang vao phong " + code + "...");
+            Status("Đang vào phòng " + code + "...");
             if (!await InitAsync()) return false;
+            LocalIdentity.ApplyConnectionData(NetworkManager.Singleton);
 
             Session = await MultiplayerService.Instance.JoinSessionByCodeAsync(code);
-            lastRoomCode = Session.Code;   // luu code de reconnect
-            Status("Da vao phong " + Session.Code);
+            lastRoomCode = Session.Code;
+            lastSessionId = Session.Id;
+            intentionalLeave = false;
+            Status("Đã vào phòng " + Session.Code);
             return true;
         }
         catch (Exception e)
         {
             Session = null;
-            Status("Khong vao duoc phong (sai ma, phong day hoac da dong): " + e.Message);
+            Status("Không vào được phòng (sai mã, phòng đầy hoặc đã đóng): " + e.Message);
             return false;
         }
         finally { Busy = false; }
     }
 
-    /// <summary>Rời phòng. Host rời thì xóa phòng; client rời thì chỉ rời. Sau đó tắt NetworkManager.</summary>
+    /// <summary>Rời phòng. Host rời thì báo lý do cho các client rồi xóa phòng; client rời thì chỉ rời. Sau đó tắt NetworkManager.</summary>
     public async Task LeaveAsync()
     {
         if (Busy) return;
-        intentionalLeave = true;   // bao hieu: day la disconnect co chu y, khong reconnect
+        intentionalLeave = true;   // chủ động rời: không tự nối lại
+        inMatch = false;
         lastRoomCode = "";
+        lastSessionId = "";
         Busy = true;
+
+        NetworkManager nm = NetworkManager.Singleton;
         try
         {
+            // Host: đá từng client kèm lý do để họ về Lobby ngay thay vì thử nối lại.
+            if (nm != null && nm.IsServer)
+            {
+                foreach (ulong id in new List<ulong>(nm.ConnectedClientsIds))
+                    if (id != NetworkManager.ServerClientId) nm.DisconnectClient(id, "Host đã đóng phòng");
+                await Task.Delay(300);   // cho gói tin kịp gửi trước khi tắt
+            }
             if (Session != null)
             {
                 if (Session.IsHost) await Session.AsHost().DeleteAsync();
@@ -213,7 +350,7 @@ public class RoomService : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogWarning("[Room] Loi khi roi phong: " + e.Message);
+            Debug.LogWarning("[Room] Lỗi khi rời phòng: " + e.Message);
         }
         finally
         {
@@ -221,8 +358,7 @@ public class RoomService : MonoBehaviour
             Busy = false;
         }
 
-        NetworkManager nm = NetworkManager.Singleton;
         if (nm != null && nm.IsListening) nm.Shutdown();
-        Status("Da roi phong.");
+        Status("Đã rời phòng.");
     }
 }

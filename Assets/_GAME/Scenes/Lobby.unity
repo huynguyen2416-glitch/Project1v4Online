@@ -5289,6 +5289,8 @@ GameObject:
   - component: {fileID: 1756352022}
   - component: {fileID: 1756352023}
   - component: {fileID: 1756352024}
+  - component: {fileID: 1756352026}
+  - component: {fileID: 1756352025}
   m_Layer: 0
   m_Name: NetworkManager
   m_TagString: Untagged
@@ -5326,7 +5328,8 @@ MonoBehaviour:
   survivorPrefab: {fileID: 8391598782299239889, guid: 4dc0d892c7605fd42bba609a00829d57, type: 3}
   hunterPrefab: {fileID: 3023247272757464774, guid: 2acc8bd3d7f26094197d64ff56aedaba, type: 3}
   extraSurvivorPrefabs: []
-  extraHunterPrefabs: []
+  extraHunterPrefabs:
+  - {fileID: 0}
   matchScene: Match
   extraMatchScenes: []
 --- !u!114 &1756352018
@@ -5428,8 +5431,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e5e65ffa314b52f4d8e9163e3370675d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoomService
-  maxPlayers: 5
   profile: 
+  lobbySceneName: Lobby
+  reconnectAttempts: 3
+  reconnectDelaySeconds: 3
 --- !u!114 &1756352023
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5458,6 +5463,31 @@ MonoBehaviour:
   port: 7777
   matchSceneName: Match
   lobbySceneName: Lobby
+--- !u!114 &1756352025
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1756352010}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 285738aa891d5364eb03c8b5c3f16c21, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConnectionGate
+  checkVersion: 1
+--- !u!114 &1756352026
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1756352010}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2f6867c4eead9304ab1e68feafce535b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NetworkManagerGuard
 --- !u!1 &1761244863
 GameObject:
   m_ObjectHideFlags: 0

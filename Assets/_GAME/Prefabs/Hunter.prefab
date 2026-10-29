@@ -17,7 +17,6 @@ GameObject:
   - component: {fileID: 523808871296315755}
   - component: {fileID: 8434624316227535025}
   - component: {fileID: -43353078170136299}
-  - component: {fileID: -6891770965805740578}
   - component: {fileID: 4442745245000894476}
   m_Layer: 0
   m_Name: Hunter
@@ -241,19 +240,6 @@ MonoBehaviour:
   markColor: {r: 1, g: 0.25, b: 0.2, a: 1}
   markSize: 0.5
   viewRange: 40
---- !u!114 &-6891770965805740578
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3023247272757464774}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: acfdb56fb37db3b488c939666c521d3a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::PlayerIdentity
-  ShowTopMostFoldoutHeaderGroup: 1
 --- !u!114 &4442745245000894476
 MonoBehaviour:
   m_ObjectHideFlags: 0

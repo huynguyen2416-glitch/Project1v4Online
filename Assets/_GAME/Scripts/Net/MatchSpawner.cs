@@ -108,7 +108,11 @@ public class MatchSpawner : MonoBehaviour
     {
         // Neu da co PlayerObject (co the da spawn o vong truoc) thi bo qua
         if (nm.ConnectedClients.TryGetValue(clientId, out var c) && c.PlayerObject != null) return;
-
+        if (!RoleAssignments.Has(clientId))  //chỉ spawn client đã có vai (người chơi từ Lobby hoặc người nối lại đã được ConnectionGate gán vai). Client nào lọt qua mà chưa có vai sẽ không bị spawn nhầm thành Survivor.
+        {
+            Debug.LogWarning("MatchSpawner: client " + clientId + " chua duoc gan vai, khong spawn.");
+            return;
+        }
         Role role = RoleAssignments.Get(clientId);
         int ci = CharacterAssignments.Get(clientId);
         GameObject prefab = role == Role.Hunter

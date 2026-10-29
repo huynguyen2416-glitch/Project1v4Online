@@ -75,7 +75,7 @@ public class LobbyUI : MonoBehaviour
                 string me = lobby.IsMe(e.ClientId) ? " (bạn)" : "";
                 string ready = e.Ready ? "SẴN SÀNG" : "đang chờ";
                 string hunter = e.WantsHunter ? "  [muốn Hunter]" : "";
-                sb.AppendLine($"Người chơi #{e.ClientId}{me}: {ready}{hunter}");
+                sb.AppendLine($"{e.Name.ToString()}{me}: {ready}{hunter}");
             }
             playerListText.text = sb.ToString();
         }

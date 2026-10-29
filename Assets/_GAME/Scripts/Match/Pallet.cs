@@ -103,6 +103,7 @@ public class Pallet : NetworkBehaviour
     /// <summary>
     /// Người chơi có đang đứng trong vùng không? side = +1 nếu đứng phía +Z, -1 nếu phía -Z.
     /// margin cho phép đứng lệch thêm (server dùng để bù độ trễ).
+    /// KHÔNG kiểm tra hướng nhìn — Survivor không cần quay mặt vào pallet.
     /// </summary>
     public bool TryGetSide(Vector3 worldPos, out int side, out float distance, float margin = 0f)
     {
@@ -191,11 +192,12 @@ public class Pallet : NetworkBehaviour
     public void DropServerRpc(ServerRpcParams p = default)
     {
         if (!IsStanding) return;
-        if (!ServerCheckActor(p.Receive.SenderClientId, Role.Survivor, out _)) return;
+        if (!ServerCheckActor(p.Receive.SenderClientId, Role.Survivor, out GameObject survivorGo)) return;
 
         State.Value = (byte)PalletState.Dropped;
         TriggerAnimClientRpc("Drop");
-        StunHuntersInDropZone();   // chỉ xảy ra 1 lần, đúng lúc pallet rơi
+        StunHuntersInDropZone();            // Hunter: choáng + đẩy ra đúng phía
+        PushSurvivorOutOfPallet(p.Receive.SenderClientId, survivorGo);  // Survivor: đẩy ra đúng phía, tránh kẹt
     }
 
     // ── RPC: Hunter phá pallet ───────────────────────────────────────────────
@@ -258,6 +260,32 @@ public class Pallet : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// Đẩy Survivor (người vừa đập pallet) ra đúng phía để tránh bị kẹt bên trong pallet khi nó rơi.
+    /// Dựa vào dot product vị trí Survivor với trục Z (forward) của pallet, giống cách xử lý Hunter.
+    /// </summary>
+    void PushSurvivorOutOfPallet(ulong survivorClientId, GameObject survivorGo)
+    {
+        if (survivorGo == null) return;
+
+        Vector3 toSurvivor = survivorGo.transform.position - transform.position;
+        toSurvivor.y = 0f;
+
+        // Nếu Survivor ở quá xa thì không cần đẩy
+        if (toSurvivor.magnitude > stunRadius) return;
+
+        Vector3 pushDir = Vector3.Dot(toSurvivor, Forward) >= 0f ? Forward : -Forward;
+        Vector3 safePos = transform.position + pushDir * (halfDepth + 0.5f);
+        safePos.y = survivorGo.transform.position.y;
+
+        // Gửi snap tới máy của Survivor (movement Owner-authoritative)
+        PushSurvivorClientRpc(safePos, survivorGo.transform.eulerAngles.y, new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams { TargetClientIds = new[] { survivorClientId } }
+        });
+        Debug.Log($"[Pallet] Survivor {survivorClientId} được đẩy ra phía ({pushDir}) khi pallet rơi");
+    }
+
     // ── ClientRpc ─────────────────────────────────────────────────────────────
 
     [ClientRpc]
@@ -278,6 +306,19 @@ public class Pallet : NetworkBehaviour
 
         move.SnapTo(pos, yaw);
         move.LockFor(duration);
+    }
+
+    /// <summary>Chỉ gửi tới máy của Survivor vừa đập pallet: đẩy ra đúng phía để tránh kẹt.</summary>
+    [ClientRpc]
+    void PushSurvivorClientRpc(Vector3 pos, float yaw, ClientRpcParams rpcParams = default)
+    {
+        NetworkClient local = NetworkManager.LocalClient;
+        if (local == null || local.PlayerObject == null) return;
+
+        NetworkPlayerMovement move = local.PlayerObject.GetComponent<NetworkPlayerMovement>();
+        if (move == null) return;
+
+        move.SnapTo(pos, yaw);   // đẩy ra, không khóa di chuyển
     }
 
     // ── Gizmos ────────────────────────────────────────────────────────────────

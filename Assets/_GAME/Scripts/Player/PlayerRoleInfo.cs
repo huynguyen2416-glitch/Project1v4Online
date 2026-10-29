@@ -10,6 +10,7 @@ public static class RoleAssignments
     public static void Clear() => map.Clear();
     public static void Set(ulong clientId, Role role) => map[clientId] = role;
     public static Role Get(ulong clientId) => map.TryGetValue(clientId, out Role r) ? r : Role.Survivor;
+    public static bool Has(ulong clientId) => map.ContainsKey(clientId);     
 }
 
 /// <summary>Gắn vào prefab Survivor và Hunter. Mọi máy đọc được vai của từng người chơi.</summary>

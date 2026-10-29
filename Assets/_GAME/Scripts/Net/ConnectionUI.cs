@@ -85,7 +85,7 @@ public class ConnectionUI : MonoBehaviour
         if (!ushort.TryParse(portText, out ushort p)) { Debug.LogError("Port không hợp lệ"); return; }
         var utp = nm.GetComponent<UnityTransport>();
         if (utp == null) { Debug.LogError("NetworkManager chưa dùng UnityTransport"); return; }
-
+        LocalIdentity.ApplyConnectionData(nm);
         if (host)
         {
             // forceOverrideCommandLineArgs = true: bỏ qua mọi tham số -ip/-port trên dòng lệnh
