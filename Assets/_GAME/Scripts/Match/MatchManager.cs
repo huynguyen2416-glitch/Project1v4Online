@@ -96,7 +96,7 @@ public class MatchManager : NetworkBehaviour
         GatesPowered.OnValueChanged -= OnGatesPoweredChanged;
         Result.OnValueChanged -= OnResultChanged;
         if (NetworkManager != null) NetworkManager.OnClientDisconnectCallback -= OnClientDisconnected;
-        ReconnectManager.Instance?.Clear();   // xóa tất cả pending state khi match kết thúc / về lobby
+        ReconnectManager.Instance?.ClearMatchState();   // giữ idMap để trận sau vẫn reconnect được
         if (Instance == this) Instance = null;
     }
 

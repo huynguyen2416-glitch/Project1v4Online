@@ -357,7 +357,7 @@ public class RoomService : MonoBehaviour
             Session = null;
             Busy = false;
         }
-
+        ReconnectManager.Instance?.Clear();
         if (nm != null && nm.IsListening) nm.Shutdown();
         Status("Đã rời phòng.");
     }

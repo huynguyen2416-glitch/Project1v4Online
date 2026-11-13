@@ -52,12 +52,16 @@ public class MainMenuController : MonoBehaviour
         if (nameInput != null) { nameInput.characterLimit = PlayerProfile.MaxLength; nameInput.text = PlayerProfile.Name; }
 
         if (lanConnectionUI != null) lanConnectionUI.enabled = false;
+        if (nameInput != null) nameInput.onEndEdit.AddListener(_ => SaveName());
         if (RoomService.Instance != null) RoomService.Instance.OnStatus += SetStatus;
 
         ShowPanels(false);
         SetStatus("Tạo phòng mới hoặc nhập mã phòng của bạn bè.");
     }
-
+    void SaveName()
+    {
+        if (nameInput != null) PlayerProfile.Name = nameInput.text;
+    }
     void OnDestroy()
     {
         if (RoomService.Instance != null) RoomService.Instance.OnStatus -= SetStatus;

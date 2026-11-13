@@ -48,22 +48,28 @@ public static class LocalIdentity
         }
     }
 
-    /// <summary>Gọi TRƯỚC StartClient / Join / Reconnect: gắn "phiên bản|PlayerId" vào dữ liệu kết nối.</summary>
+    /// <summary>Gọi TRƯỚC StartClient / Join / Reconnect: gắn "phiên bản|PlayerId|tên" vào dữ liệu kết nối.</summary>
     public static void ApplyConnectionData(NetworkManager nm)
     {
         if (nm == null) return;
-        nm.NetworkConfig.ConnectionData = Encoding.UTF8.GetBytes(Application.version + Sep + PlayerId + Sep + PlayerProfile.Name);
+        nm.NetworkConfig.ConnectionData = Encoding.UTF8.GetBytes(
+            Application.version + Sep + PlayerId + Sep + PlayerProfile.Name);
     }
 
-    /// <summary>Server tách dữ liệu kết nối ra phiên bản và PlayerId.</summary>
+    /// <summary>Server tách dữ liệu kết nối ra phiên bản, PlayerId và tên.</summary>
     public static bool TryParse(byte[] payload, out string version, out string playerId, out string name)
     {
-        version = ""; playerId = ""; name = "";
+        version = "";
+        playerId = "";
+        name = "";
         if (payload == null || payload.Length == 0) return false;
-        string[] parts = Encoding.UTF8.GetString(payload).Split(Sep);
+
+        string[] parts = Encoding.UTF8.GetString(payload).Split(Sep);   // [0]=phiên bản, [1]=PlayerId, [2]=tên (có thể thiếu)
         if (parts.Length < 2 || parts[1].Length == 0) return false;
-        version = parts[0]; playerId = parts[1];
-        if (parts.Length >= 3) name = PlayerProfile.Sanitize(parts[2]);
+
+        version = parts[0];
+        playerId = parts[1];
+        if (parts.Length >= 3) name = PlayerProfile.Sanitize(parts[2]);   // server không tin client: làm sạch lại lần nữa
         return true;
     }
 }

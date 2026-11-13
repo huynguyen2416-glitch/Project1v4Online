@@ -27,6 +27,16 @@ public class HunterCarry : NetworkBehaviour
     [SerializeField] float chairRange = 2.5f;
     [Range(0.3f, 1f)][SerializeField] float carrySpeedFactor = 0.85f;
 
+    [Header("Vật cản")]
+    [Tooltip("Độ cao điểm bắn tia kiểm tra tường (ngang ngực), tính từ chân.")]
+    [SerializeField] float eyeHeight = 1.0f;
+    [Tooltip("Chênh lệch độ cao tối đa để còn bế / đặt ghế được.")]
+    [SerializeField] float maxHeightDiff = 1.5f;
+    [Tooltip("Layer được coi là vật cản. Bỏ tick layer nào không muốn chặn.")]
+    [SerializeField] LayerMask blockMask = ~0;
+    [Tooltip("Khi thả người, chừa khoảng cách này khỏi tường (mét).")]
+    [SerializeField] float dropClearance = 0.5f;
+
     [Header("Animation")]
     [SerializeField] Animator animator;
 
@@ -136,7 +146,9 @@ public class HunterCarry : NetworkBehaviour
 
         foreach (SurvivorState st in SurvivorState.All)
         {
-            if (st.Current == SurvivorHealth.Downed && FlatDistance(st.transform.position) <= pickupRange)
+            if (st.Current == SurvivorHealth.Downed
+                && FlatDistance(st.transform.position) <= pickupRange
+                && CanReach(st.transform.position, st.transform))
             {
                 nearDowned = true;
                 break;
@@ -144,7 +156,9 @@ public class HunterCarry : NetworkBehaviour
         }
         foreach (RocketChair c in RocketChair.All)
         {
-            if (c.IsFree && FlatDistance(c.transform.position) <= chairRange)
+            if (c.IsFree
+                && FlatDistance(c.transform.position) <= chairRange
+                && CanReach(c.transform.position, c.transform))
             {
                 nearChair = true;
                 break;
@@ -159,6 +173,13 @@ public class HunterCarry : NetworkBehaviour
         return d.magnitude;
     }
 
+    /// <summary>Cùng tầng và không có tường chắn giữa Hunter và mục tiêu.</summary>
+    bool CanReach(Vector3 targetPos, Transform targetRoot)
+    {
+        if (Mathf.Abs(targetPos.y - transform.position.y) > maxHeightDiff) return false;
+        return LineOfSight.Clear(transform.position, targetPos, eyeHeight, blockMask, targetRoot);
+    }
+
     [ServerRpc]
     void PickUpServerRpc()
     {
@@ -170,7 +191,7 @@ public class HunterCarry : NetworkBehaviour
         {
             if (st.Current != SurvivorHealth.Downed) continue;
             float d = FlatDistance(st.transform.position);
-            if (d <= bestDist) { bestDist = d; best = st; }
+            if (d <= bestDist && CanReach(st.transform.position, st.transform)) { bestDist = d; best = st; }
         }
 
         if (best == null || !best.ServerPickUp(NetworkObject)) return;
@@ -192,7 +213,7 @@ public class HunterCarry : NetworkBehaviour
         {
             if (!c.IsFree) continue;
             float d = FlatDistance(c.transform.position);
-            if (d <= bestDist) { bestDist = d; chair = c; }
+            if (d <= bestDist && CanReach(c.transform.position, c.transform)) { bestDist = d; chair = c; }
         }
 
         if (chair == null || !chair.ServerPlace(carried)) return;
@@ -210,7 +231,11 @@ public class HunterCarry : NetworkBehaviour
 
         if (carried != null)
         {
-            Vector3 dropPos = transform.position + transform.forward * 1f;
+            // Có tường phía trước thì thả gần Hunter hơn, không đẩy Survivor vào / qua tường.
+            Vector3 origin = transform.position + Vector3.up * eyeHeight;
+            float free = LineOfSight.FreeDistance(origin, transform.forward, 1f + dropClearance, blockMask);
+            float dist = Mathf.Clamp(free - dropClearance, 0f, 1f);
+            Vector3 dropPos = transform.position + transform.forward * dist;
             dropPos.y = transform.position.y;
             carried.ServerDrop(dropPos, transform.eulerAngles.y);
         }

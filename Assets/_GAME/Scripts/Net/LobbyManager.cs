@@ -221,7 +221,7 @@ public class LobbyManager : NetworkBehaviour
             // Host bấm Start nên không bắt buộc host phải bấm Sẵn sàng.
             if (!entries[i].Ready && entries[i].ClientId != NetworkManager.LocalClientId)
             {
-                Say("Còn người chưa sẵn sàng: người chơi #" + entries[i].Name.ToString());
+                Say("Còn người chưa sẵn sàng: " + entries[i].Name.ToString());
                 return;
             }
         }

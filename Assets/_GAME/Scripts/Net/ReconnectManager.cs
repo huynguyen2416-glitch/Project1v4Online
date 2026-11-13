@@ -189,7 +189,12 @@ public class ReconnectManager : MonoBehaviour
         reservedIds.Clear();
         snaps.Clear();
     }
-
+    public void ClearMatchState()
+    {
+        pending.Clear();
+        reservedIds.Clear();
+        snaps.Clear();
+    }
     // ================== Định kỳ ==================
 
     void Update()

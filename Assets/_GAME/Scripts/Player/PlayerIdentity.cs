@@ -1,67 +1,57 @@
-﻿using Unity.Netcode;
-using Unity.Netcode.Components;
-using Unity.Services.Authentication;
+﻿using Unity.Collections;
+using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Gang vao ca prefab Survivor VA Hunter.
-/// Khi spawn, owner gui PlayerId (UUID ben vung tu Unity Auth) len server.
-/// Server dung de: (1) theo doi clientId - playerId, (2) nhan dien va khoi phuc state khi reconnect.
+/// Gắn vào CẢ prefab Survivor VÀ Hunter.
+/// - Server ghi tên hiển thị lúc spawn (lấy từ NameAssignments), mọi máy đọc qua PlayerName.
+/// - Chủ nhân báo "tôi đã sẵn sàng" lên server; nếu là người vừa nối lại thì server khôi phục vị trí và máu.
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class PlayerIdentity : NetworkBehaviour
 {
+    /// <summary>Tên hiển thị. Server ghi, mọi máy đọc (kể cả người vào sau hoặc nối lại).</summary>
+    public readonly NetworkVariable<FixedString64Bytes> PlayerName = new NetworkVariable<FixedString64Bytes>();
+    public string DisplayName => PlayerName.Value.ToString();
+
     public override void OnNetworkSpawn()
     {
-        if (!IsOwner) return;
-
-        // PlayerId tu Unity Auth (WAN/Relay). Fallback ve clientId cho LAN khong dung Auth.
-        string pid = (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
-            ? AuthenticationService.Instance.PlayerId
-            : "local_" + OwnerClientId.ToString();
-
-        RegisterServerRpc(pid);
+        if (IsServer) PlayerName.Value = new FixedString64Bytes(NameAssignments.Get(OwnerClientId));
+        if (IsOwner) RequestRestoreServerRpc();
     }
 
     [ServerRpc]
-    void RegisterServerRpc(string playerId, ServerRpcParams p = default)
+    void RequestRestoreServerRpc(ServerRpcParams p = default)
     {
         ulong clientId = p.Receive.SenderClientId;
         ReconnectManager rm = ReconnectManager.Instance;
-        if (rm == null) return;
+        if (rm == null || !rm.TakeReserved(clientId, out ReconnectManager.SavedState state)) return;   // lần vào đầu tiên: không có gì để khôi phục
 
-        // TryConsume tra ve true neu day la reconnect co state da luu
-        if (rm.TryConsume(clientId, playerId, out ReconnectManager.SavedState state))
+        // 1) Vị trí: NetworkTransform do chủ nhân điều khiển, nên chỉ chủ nhân dịch chuyển được -> gửi riêng cho họ.
+        if (state.hasPosition)
         {
-            // Anh xa lai role / character cho clientId moi
-            RoleAssignments.Set(clientId, state.role);
-            CharacterAssignments.Set(clientId, state.characterIndex);
-
-            // Khoi phuc vi tri: teleport NetworkTransform toi vi tri da luu
-            var nt = GetComponent<NetworkTransform>();
-            Quaternion rot = Quaternion.Euler(0f, state.yaw, 0f);
-            if (nt != null)
-                nt.Teleport(state.position, rot, transform.localScale);
-            else
-                transform.SetPositionAndRotation(state.position, rot);
-
-            // Khoi phuc mau Survivor (Hunter khong co SurvivorState)
-            if (state.role == Role.Survivor)
+            RestorePositionClientRpc(state.position, state.yaw, new ClientRpcParams
             {
-                var ss = GetComponent<SurvivorState>();
-                if (ss != null && state.health != SurvivorHealth.Healthy)
-                    ss.ServerSet(state.health);
-            }
-
-            // Thong bao MatchManager: reconnect thanh cong (xoa HunterReconnecting neu can)
-            MatchManager.Instance?.OnPlayerReconnected(clientId, state.role);
-
-            Debug.Log($"[Reconnect] State da duoc khoi phuc cho client {clientId} (vai {state.role}, health {state.health}).");
+                Send = new ClientRpcSendParams { TargetClientIds = new[] { clientId } }
+            });
         }
-        else
+
+        // 2) Máu (Survivor)
+        if (state.role == Role.Survivor)
         {
-            // Lan dau vao: chi dang ky clientId - playerId de theo doi
-            rm.Register(clientId, playerId);
+            SurvivorState ss = GetComponent<SurvivorState>();
+            if (ss != null && state.health != SurvivorHealth.Healthy) ss.ServerSet(state.health);
         }
+
+        if (MatchManager.Instance != null) MatchManager.Instance.OnPlayerReconnected(clientId, state.role);
+        Debug.Log("[Reconnect] Đã khôi phục client " + clientId + " (vai " + state.role + ", máu " + state.health + ").");
+    }
+
+    [ClientRpc]
+    void RestorePositionClientRpc(Vector3 pos, float yaw, ClientRpcParams rpcParams = default)
+    {
+        if (!IsOwner) return;
+        NetworkPlayerMovement move = GetComponent<NetworkPlayerMovement>();
+        if (move != null) move.SnapTo(pos, yaw);
     }
 }
