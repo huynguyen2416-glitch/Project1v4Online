@@ -45,7 +45,7 @@ public class InteractUI : MonoBehaviour
 
         if (promptText != null)
             promptText.text = pi.IsWorking
-                ? $"Đang giải mã... {pct}%"
+                ? $"Đang thực hiện... {pct}%"
                 : $"[F] {target.PromptText}  ({pct}%)";
         if (progressSlider != null) progressSlider.value = progress;
     }

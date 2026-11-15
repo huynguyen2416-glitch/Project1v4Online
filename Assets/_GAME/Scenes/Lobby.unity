@@ -5597,6 +5597,8 @@ GameObject:
   - component: {fileID: 1756352024}
   - component: {fileID: 1756352026}
   - component: {fileID: 1756352025}
+  - component: {fileID: 1756352028}
+  - component: {fileID: 1756352027}
   m_Layer: 0
   m_Name: NetworkManager
   m_TagString: Untagged
@@ -5794,6 +5796,48 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2f6867c4eead9304ab1e68feafce535b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::NetworkManagerGuard
+--- !u!114 &1756352027
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1756352010}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14b56dc9985593b4aaee1e1c2210799b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NetProbe
+  probeHz: 20
+  posReportHz: 4
+  windowSeconds: 1
+  historySeconds: 3
+--- !u!114 &1756352028
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1756352010}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9aa8ab69709e63a4e80e5804619d5d40, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NetSimulator
+  editorLevel: 0
+  profiles:
+  - delayMs: 0
+    jitterMs: 0
+    dropPercent: 0
+  - delayMs: 50
+    jitterMs: 10
+    dropPercent: 0
+  - delayMs: 100
+    jitterMs: 30
+    dropPercent: 2
+  - delayMs: 200
+    jitterMs: 60
+    dropPercent: 5
 --- !u!1 &1761244863
 GameObject:
   m_ObjectHideFlags: 0
