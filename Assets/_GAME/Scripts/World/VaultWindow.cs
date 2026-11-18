@@ -41,7 +41,7 @@ public class VaultWindow : MonoBehaviour
     /// Người chơi có đang đứng trong vùng nhảy không? side = +1 nếu đứng phía +Z, -1 nếu phía -Z.
     /// Tính theo mét thật nên không bị ảnh hưởng bởi scale của object.
     /// </summary>
-    public bool TryGetSide(Vector3 worldPos, out int side, out float distance)
+    public bool TryGetSide(Vector3 worldPos, out int side, out float distance, float margin = 0f)
     {
         Vector3 d = worldPos - transform.position;
         d.y = 0f;
@@ -49,7 +49,7 @@ public class VaultWindow : MonoBehaviour
         float z = Vector3.Dot(d, Forward);
         side = z >= 0f ? 1 : -1;
         distance = d.magnitude;
-        return Mathf.Abs(x) <= width * 0.5f && Mathf.Abs(z) <= approachDepth;
+        return Mathf.Abs(x) <= width * 0.5f + margin && Mathf.Abs(z) <= approachDepth + margin;
     }
 
     /// <summary>Hướng nhảy khi đứng ở phía fromSide (đi sang phía đối diện).</summary>

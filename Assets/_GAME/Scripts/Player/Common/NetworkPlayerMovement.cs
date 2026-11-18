@@ -50,6 +50,17 @@ public class NetworkPlayerMovement : NetworkBehaviour
     float speedMultiplier = 1f;
 
     public bool IsVaulting { get; private set; }
+
+    /// <summary>Nghỉ giữa hai lần leo (cửa sổ / pallet) để khỏi spam. Dùng chung cho PlayerVault và PalletInteract.</summary>
+    public const float VaultCooldown = 0.5f;
+    float vaultReadyTime;
+    public bool VaultCooldownReady => Time.time >= vaultReadyTime;
+
+    /// <summary>Mọi người chơi đang spawn, để kiểm tra có ai đang leo cùng cửa sổ / pallet không.</summary>
+    public static readonly System.Collections.Generic.List<NetworkPlayerMovement> All = new System.Collections.Generic.List<NetworkPlayerMovement>();
+
+    /// <summary>Đang leo (máy chủ nhân biết ngay, máy khác đọc từ biến đồng bộ).</summary>
+    public bool IsClimbing => IsVaulting || IsVaultingNet;
     float boostMultiplier = 1f;
     float boostUntil;
 
@@ -102,6 +113,7 @@ public class NetworkPlayerMovement : NetworkBehaviour
         else
         {
             verticalVelocity = 0f;
+            vaultReadyTime = Time.time + VaultCooldown;   // đợi 1s mới leo tiếp
             if (IsSpawned) netState.Value = (byte)MoveState.Idle;
         }
     }
@@ -147,8 +159,11 @@ public class NetworkPlayerMovement : NetworkBehaviour
         SceneManager.sceneLoaded += (_, _2) => spawnCounter = 0;
     }
 
+    public override void OnNetworkDespawn() { All.Remove(this); }
+
     public override void OnNetworkSpawn()
     {
+        if (!All.Contains(this)) All.Add(this);
         cc.enabled = false;
         if (!IsOwner && !IsServer) return;   // server cần enabled để bot chạy sau ChangeOwnership
 

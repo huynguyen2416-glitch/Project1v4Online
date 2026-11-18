@@ -44,7 +44,26 @@ public class PalletInteract : NetworkBehaviour
     bool vaulting;
 
     /// <summary>Pallet có thể tương tác ngay lúc này (null nếu không có hoặc đang trèo). PlayerVault dùng để nhường.</summary>
-    public Pallet Target => vaulting ? null : target;
+    public Pallet Target => (vaulting || target == null || IsClimbBlocked(target)) ? null : target;
+
+    /// <summary>Người khác đang leo trong/cạnh vùng pallet thì coi như pallet đang bận (cho dung sai vì người leo đang di chuyển).</summary>
+    const float OccupiedMargin = 1f;
+
+    /// <summary>
+    /// Survivor muốn TRÈO pallet đã nằm nhưng chưa được: còn đang nghỉ 1s, hoặc có người khác đang trèo pallet đó.
+    /// Đập pallet đang đứng và Hunter phá pallet không bị chặn bởi luật này.
+    /// </summary>
+    bool IsClimbBlocked(Pallet p)
+    {
+        if (IsHunter || !p.IsDropped || p.IsBreaking.Value) return false;
+        if (!move.VaultCooldownReady) return true;
+        foreach (NetworkPlayerMovement other in NetworkPlayerMovement.All)
+        {
+            if (other == null || other == move || !other.IsClimbing) continue;
+            if (p.TryGetSide(other.transform.position, out _, out _, OccupiedMargin)) return true;
+        }
+        return false;
+    }
     public bool IsVaulting => vaulting;
 
     bool IsHunter => role != null && role.CurrentRole == Role.Hunter;
@@ -172,6 +191,7 @@ public class PalletInteract : NetworkBehaviour
         }
         else if (p.IsDropped && !p.IsBreaking.Value)
         {
+            if (IsClimbBlocked(p)) return;   // đang nghỉ 1s hoặc có người khác đang trèo
             StartCoroutine(VaultRoutine(p, targetSide));
         }
     }

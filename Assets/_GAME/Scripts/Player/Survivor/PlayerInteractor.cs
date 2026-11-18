@@ -91,7 +91,8 @@ public class PlayerInteractor : NetworkBehaviour
         if (current != null)
         {
             bool tooFar = current.FlatDistance(transform.position) > current.Range + 0.5f;
-            if (moving || tooFar || current.Done.Value || !current.IsAvailable || !current.CanUse(EffectiveClientId) || input.InteractDown)
+            bool noSight = !current.HasLineOfSight(transform.position);
+            if (moving || tooFar || noSight || current.Done.Value || !current.IsAvailable || !current.CanUse(EffectiveClientId) || input.InteractDown)
             {
                 NetStatsLogger.Mark("interact_stop");
                 StopCurrent();
@@ -137,7 +138,7 @@ public class PlayerInteractor : NetworkBehaviour
         {
             if (!it.IsSpawned || !it.IsAvailable || !it.CanUse(checkId)) continue;
             float d = it.FlatDistance(transform.position);
-            if (d <= it.Range && d < bestDist) { bestDist = d; best = it; }
+            if (d <= it.Range && d < bestDist && it.HasLineOfSight(transform.position)) { bestDist = d; best = it; }
         }
         return best;
     }

@@ -14,6 +14,12 @@ public abstract class NetInteractable : NetworkBehaviour
     [SerializeField] float range = 2.5f;
     [SerializeField] protected Renderer visual;                   // để trống thì tự tìm Renderer
 
+    [Header("Chặn xuyên tường (chỉ có tác dụng với thứ bật RequireLineOfSight, vd. máy mã hóa)")]
+    [Tooltip("Độ cao điểm bắn tia kiểm tra tường (ngang ngực), tính từ chân người chơi / từ gốc của vật.")]
+    [SerializeField] float losEyeHeight = 1.0f;
+    [Tooltip("Layer được coi là vật cản. Bỏ tick layer nào không muốn chặn.")]
+    [SerializeField] LayerMask losMask = ~0;
+
     public readonly NetworkVariable<float> Progress = new NetworkVariable<float>(0f);
     public readonly NetworkVariable<bool> Done = new NetworkVariable<bool>(false);
 
@@ -35,6 +41,15 @@ public abstract class NetInteractable : NetworkBehaviour
     public float Range => range;
     public abstract string PromptText { get; }
     public virtual bool IsAvailable => !Done.Value;
+    /// <summary>true = phải không có tường chắn giữa người chơi và vật này mới làm được (máy mã hóa).</summary>
+    public virtual bool RequireLineOfSight => false;
+
+    /// <summary>Không bị tường chắn giữa actorPos (chân người chơi) và vật này. Vật không bật RequireLineOfSight thì luôn true.</summary>
+    public bool HasLineOfSight(Vector3 actorPos)
+    {
+        if (!RequireLineOfSight) return true;
+        return LineOfSight.Clear(actorPos, transform.position, losEyeHeight, losMask, transform);
+    }
     /// <summary>true = nhấn F là xong ngay, không có thanh tiến độ (ví dụ nhảy hầm).</summary>
     public virtual bool IsInstant => false;
     /// <summary>Server hỏi trước khi cho userId làm (ví dụ chặn tự hồi máu cho chính mình). Mặc định cho phép.</summary>
@@ -69,6 +84,7 @@ public abstract class NetInteractable : NetworkBehaviour
         if (!IsAvailable || !CanUse(id)) return;
         if (!TryGetSurvivor(id, out Transform t)) return;
         if (FlatDistance(t.position) > range + 0.5f) return;   // dung sai cho độ trễ
+        if (!HasLineOfSight(t.position)) return;                // bị tường chắn
         if (IsInstant) { CompleteInstantly(id); return; }
         if (users.Add(id)) OnUserAdded(id);
     }
@@ -81,6 +97,7 @@ public abstract class NetInteractable : NetworkBehaviour
         if (!IsServer || MatchManager.Ended) return;
         if (!IsAvailable || !CanUse(originalClientId)) return;
         if (actor == null || FlatDistance(actor.position) > range + 0.5f) return;
+        if (!HasLineOfSight(actor.position)) return;
         if (IsInstant) { CompleteInstantly(originalClientId); return; }
         if (users.Add(originalClientId)) OnUserAdded(originalClientId);
     }
@@ -180,7 +197,7 @@ public abstract class NetInteractable : NetworkBehaviour
         toRemove.Clear();
         foreach (ulong id in users)
         {
-            if (!IsAvailable || !CanUse(id) || !TryGetSurvivor(id, out Transform t) || FlatDistance(t.position) > range + 0.5f)
+            if (!IsAvailable || !CanUse(id) || !TryGetSurvivor(id, out Transform t) || FlatDistance(t.position) > range + 0.5f || !HasLineOfSight(t.position))
                 toRemove.Add(id);   // đi xa / rớt mạng / bị đánh / hết hiệu lực -> buông
         }
         foreach (ulong id in toRemove) { if (users.Remove(id)) OnUserRemoved(id); }

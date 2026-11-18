@@ -203,6 +203,7 @@ GameObject:
   - component: {fileID: 151700662526581597}
   - component: {fileID: 5030317803235522843}
   - component: {fileID: 7439453670676528028}
+  - component: {fileID: -6950289208700184235}
   m_Layer: 0
   m_Name: Survivor
   m_TagString: Untagged
@@ -296,7 +297,6 @@ MonoBehaviour:
   crouchSpeed: 2.5
   turnSpeed: 720
   gravity: -20
-  crouchKey: 99
   crouchHeightRatio: 0.6
   animator: {fileID: 0}
   spawnOrigin: {x: 0, y: 0.1, z: 0}
@@ -373,7 +373,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerInteractor
   ShowTopMostFoldoutHeaderGroup: 1
-  interactKey: 102
 --- !u!114 &8299185010102070534
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -390,6 +389,10 @@ MonoBehaviour:
   duration: 10
   range: 2.5
   visual: {fileID: 0}
+  losEyeHeight: 1
+  losMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!114 &6027764112724835902
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -403,12 +406,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerVault
   ShowTopMostFoldoutHeaderGroup: 1
-  vaultKey: 32
   survivorDuration: 0.6
   hunterCanVault: 1
   hunterDuration: 1
   arcHeight: 0.25
-  minFacing: 0.3
   scanInterval: 0.1
 --- !u!114 &9210714308384754500
 MonoBehaviour:
@@ -487,6 +488,20 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerIdentity
   ShowTopMostFoldoutHeaderGroup: 1
+--- !u!114 &-6950289208700184235
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8391598782299239889}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93999e09a3a56d746b29642e0689c630, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SelfRevive
+  ShowTopMostFoldoutHeaderGroup: 1
+  duration: 12
 --- !u!1001 &2672951682763783715
 PrefabInstance:
   m_ObjectHideFlags: 0

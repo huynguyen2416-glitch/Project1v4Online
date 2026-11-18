@@ -25,8 +25,6 @@ public class PlayerVault : NetworkBehaviour
 
     [Header("Chuyển động")]
     [SerializeField] float arcHeight = 0.25f;          // độ nhấc người lên giữa lúc nhảy
-    [Tooltip("1 = phải nhìn thẳng vào cửa sổ, 0 = chỉ cần không quay lưng. Gợi ý 0.3.")]
-    [Range(-1f, 1f)] [SerializeField] float minFacing = 0.3f;
     [SerializeField] float scanInterval = 0.1f;
 
     NetworkPlayerMovement move;
@@ -43,8 +41,14 @@ public class PlayerVault : NetworkBehaviour
     bool vaulting;
 
     public KeyCode Key => input.Keys.VaultKey;
-    /// <summary>Cửa sổ có thể nhảy ngay lúc này (null nếu không có hoặc đang nhảy). InteractUI dùng để hiện lời nhắc.</summary>
-    public VaultWindow Target => vaulting ? null : target;
+    /// <summary>Người khác đang leo trong/cạnh vùng cửa sổ thì coi như cửa sổ đang bận (cho dung sai vì người leo đang di chuyển).</summary>
+    const float OccupiedMargin = 1f;
+
+    /// <summary>
+    /// Cửa sổ có thể nhảy ngay lúc này (null nếu không có, đang nhảy, đang nghỉ 1s, hoặc có người khác đang leo cửa sổ đó).
+    /// InteractUI và bot dùng để hiện lời nhắc / quyết định nhấn phím.
+    /// </summary>
+    public VaultWindow Target => (vaulting || target == null || !CanVault(target)) ? null : target;
     public bool IsVaulting => vaulting;
 
     CharacterInput input;
@@ -102,8 +106,20 @@ public class PlayerVault : NetworkBehaviour
             FindTarget();
         }
 
-        if (target != null && input.VaultDown)
+        if (target != null && input.VaultDown && CanVault(target))
             StartCoroutine(VaultRoutine(target, targetSide, isHunter));
+    }
+
+    /// <summary>Đã hết 1s nghỉ và không có ai khác đang leo cửa sổ này.</summary>
+    bool CanVault(VaultWindow w)
+    {
+        if (!move.VaultCooldownReady) return false;
+        foreach (NetworkPlayerMovement other in NetworkPlayerMovement.All)
+        {
+            if (other == null || other == move || !other.IsClimbing) continue;
+            if (w.TryGetSide(other.transform.position, out _, out _, OccupiedMargin)) return false;
+        }
+        return true;
     }
 
     void FindTarget()
@@ -115,9 +131,7 @@ public class PlayerVault : NetworkBehaviour
             if (w == null) continue;
             if (!w.TryGetSide(transform.position, out int side, out float dist)) continue;
 
-            // Phải đang quay mặt về phía bên kia cửa sổ.
-            if (Vector3.Dot(transform.forward, w.JumpDirection(side)) < minFacing) continue;
-
+            // Chỉ cần đứng trong vùng là được, không cần quay mặt về phía cửa sổ.
             if (dist < best) { best = dist; target = w; targetSide = side; }
         }
     }

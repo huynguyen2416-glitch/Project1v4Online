@@ -53,6 +53,10 @@ public class InteractUI : MonoBehaviour
     static string GetExtraPrompt()
     {
         // Bế / thả người (phím F, Q) đứng đầu để không bị pallet hay cửa sổ gần đó che mất.
+        // Đang Gục: lời nhắc giữ F tự dậy.
+        SelfRevive sr = SelfRevive.Local;
+        if (sr != null && sr.Prompt != null) return sr.Prompt;
+
         HunterCarry hc = HunterCarry.Local;
         if (hc != null && !string.IsNullOrEmpty(hc.Prompt)) return hc.Prompt;
 

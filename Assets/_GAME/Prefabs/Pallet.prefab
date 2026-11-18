@@ -131,8 +131,8 @@ MonoBehaviour:
   droppedVisual: {fileID: 4588112317175222160}
   animator: {fileID: 9187348241769161019}
   blockCollider: {fileID: 5997187777332039922}
-  width: 2.4
-  approachDepth: 1.5
+  width: 3.6
+  approachDepth: 2.2
   halfDepth: 1.28
   stunRadius: 2
   stunDuration: 2.5

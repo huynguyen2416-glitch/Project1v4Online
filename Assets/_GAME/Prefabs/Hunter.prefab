@@ -238,7 +238,6 @@ MonoBehaviour:
   crouchSpeed: 2.5
   turnSpeed: 720
   gravity: -20
-  crouchKey: 99
   crouchHeightRatio: 0.6
   animator: {fileID: 0}
   spawnOrigin: {x: 0, y: 0.1, z: 0}
@@ -269,9 +268,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HunterAttack
   ShowTopMostFoldoutHeaderGroup: 1
-  attackMouseButton: 0
-  reach: 2
-  halfAngle: 112
+  reach: 4
+  halfAngle: 90
   bodyRadius: 0.35
   maxHeightDiff: 1.5
   hitDelay: 0.3
@@ -297,8 +295,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HunterCarry
   ShowTopMostFoldoutHeaderGroup: 1
-  pickupKey: 102
-  dropKey: 113
   lockOnPickup: 3
   lockOnDrop: 2
   lockOnPlace: 2
