@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
@@ -65,7 +66,33 @@ public class Pallet : NetworkBehaviour
     [Tooltip("Thời gian animation phá chạy trước khi pallet biến mất (giây). Hunter bị khóa trong lúc này.")]
     [SerializeField] float breakAnimDuration = 1.5f;
 
+    [Header("Animation tự động (không cần clip, không cần Animator)")]
+    [Tooltip("Bật: pallet tự hạ xuống (xoay quanh mép) rồi khi bị phá thì rung và vỡ thành mảnh. Tắt: dùng Animator như cũ.")]
+    [SerializeField] bool proceduralAnimation = true;
+    [Tooltip("Thời gian pallet đổ xuống (giây).")]
+    [SerializeField] float dropDuration = 0.15f;
+    [Tooltip("Góc đổ (độ). Chỉnh cho gần khớp tư thế của 'Dropped Visual' để lúc đổi mô hình không bị giật.")]
+    [SerializeField] float dropAngle = 85f;
+    [Tooltip("Mép bản lề cách tâm pallet bao xa (mét, dọc trục Z) về phía Survivor. Chỉnh cho đến khi pallet đổ trông tự nhiên.")]
+    [SerializeField] float hingeOffset = 0.35f;
+    [Tooltip("Đổi chiều đổ nếu pallet đổ về phía Survivor thay vì phía Hunter.")]
+    [SerializeField] bool invertFallDirection = false;
+    [Tooltip("Độ nảy nhẹ khi chạm đất (độ).")]
+    [SerializeField] float dropBounce = 4f;
+    [Tooltip("Số mảnh vỡ văng ra khi pallet bị phá.")]
+    [SerializeField] int debrisCount = 14;
+    [Tooltip("Thời gian mảnh vỡ tồn tại (giây).")]
+    [SerializeField] float debrisLifetime = 1.1f;
+    [Tooltip("Tùy chọn: hiệu ứng bụi phát khi pallet chạm đất.")]
+    [SerializeField] ParticleSystem dropDust;
+    [Tooltip("Tùy chọn: âm thanh pallet đổ / bị phá.")]
+    [SerializeField] AudioClip dropSound;
+    [SerializeField] AudioClip breakSound;
+
     // ── NetworkVariables ──────────────────────────────────────────────────────
+
+    /// <summary>Hướng đổ: +1 = về phía +Z của pallet, -1 = phía -Z. Server ghi TRƯỚC State để mọi máy đọc kịp khi State đổi.</summary>
+    public readonly NetworkVariable<sbyte> FallSign = new NetworkVariable<sbyte>(1);
 
     public readonly NetworkVariable<byte> State =
         new NetworkVariable<byte>((byte)PalletState.Standing);
@@ -135,24 +162,253 @@ public class Pallet : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         All.Add(this);
+        shattered = false;
         State.OnValueChanged += OnStateChanged;
-        ApplyState(CurrentState);
+        IsBreaking.OnValueChanged += OnBreakingChanged;
+        ApplyCollider(CurrentState);
+        ApplyVisuals(CurrentState);   // vào giữa chừng: hiện thẳng trạng thái hiện tại, không chạy animation
     }
 
     public override void OnNetworkDespawn()
     {
         All.Remove(this);
         State.OnValueChanged -= OnStateChanged;
+        IsBreaking.OnValueChanged -= OnBreakingChanged;
+        StopAnimations();
     }
 
-    void OnStateChanged(byte _, byte next) => ApplyState((PalletState)next);
+    void OnStateChanged(byte prev, byte next)
+    {
+        PalletState p = (PalletState)prev, n = (PalletState)next;
+        ApplyCollider(n);   // collider đổi ngay theo trạng thái thật, không đợi animation
 
-    void ApplyState(PalletState s)
+        if (n == PalletState.Standing) shattered = false;
+
+        if (proceduralAnimation && n == PalletState.Dropped && p == PalletState.Standing && standingVisual != null)
+        {
+            if (dropRoutine != null) return;   // người đập đã tự chạy animation đoán trước, server vừa xác nhận
+            StopAnimations();
+            dropRoutine = StartCoroutine(DropRoutine());
+            return;
+        }
+
+        // Đang chạy animation vỡ: nó tự tắt hình khi xong, đừng cắt ngang.
+        if (n == PalletState.Destroyed && breakRoutine != null) return;
+
+        StopAnimations();
+        ApplyVisuals(n);
+    }
+
+    void OnBreakingChanged(bool _, bool breaking)
+    {
+        if (!breaking || !proceduralAnimation) return;
+        StopAnimations();
+        breakRoutine = StartCoroutine(BreakRoutine());
+    }
+
+    // blockCollider không trigger, chỉ chặn đường khi nằm xuống.
+    void ApplyCollider(PalletState s)
+    {
+        if (blockCollider) blockCollider.enabled = s == PalletState.Dropped;
+    }
+
+    void ApplyVisuals(PalletState s)
     {
         if (standingVisual) standingVisual.SetActive(s == PalletState.Standing);
-        if (droppedVisual) droppedVisual.SetActive(s == PalletState.Dropped);
-        // blockCollider không trigger, chỉ chặn đường khi nằm xuống.
-        if (blockCollider) blockCollider.enabled = s == PalletState.Dropped;
+        if (droppedVisual) droppedVisual.SetActive(s == PalletState.Dropped && !shattered);
+    }
+
+    // ── Animation tự động ─────────────────────────────────────────────────────
+
+    Coroutine dropRoutine, breakRoutine;
+    bool predicting;          // máy người đập: đã chạy animation trước khi server xác nhận
+    float predictUntil;       // quá hạn này mà server chưa xác nhận thì hoàn lại pallet đứng
+    int predictedFallSign = 1;
+
+    /// <summary>
+    /// Máy của người đập gọi NGAY khi bấm phím (cùng lúc gửi yêu cầu lên server) để pallet đổ tức thì, không chờ khứ hồi mạng.
+    /// Server vẫn là bên quyết định: bị từ chối thì sau ~0,8 giây pallet tự dựng lại.
+    /// </summary>
+    public void PredictDrop(int dropperSide)
+    {
+        if (!proceduralAnimation || standingVisual == null || !IsStanding || dropRoutine != null) return;
+        predicting = true;
+        predictUntil = Time.time + 0.8f;
+        predictedFallSign = -dropperSide;
+        StopAnimations();
+        dropRoutine = StartCoroutine(DropRoutine());
+    }
+    bool shattered;   // đã vỡ: không bật lại hình pallet nằm dù trạng thái chưa kịp sang Destroyed
+
+    void StopAnimations()
+    {
+        if (dropRoutine != null) { StopCoroutine(dropRoutine); dropRoutine = null; }
+        if (breakRoutine != null) { StopCoroutine(breakRoutine); breakRoutine = null; }
+        RestoreVisualPose(standingVisual);
+    }
+
+    Vector3 savedPos; Quaternion savedRot; Transform savedTarget;
+
+    void SavePose(Transform t) { savedTarget = t; savedPos = t.localPosition; savedRot = t.localRotation; }
+
+    void RestoreVisualPose(GameObject g)
+    {
+        if (g != null && savedTarget == g.transform) { savedTarget.localPosition = savedPos; savedTarget.localRotation = savedRot; }
+    }
+
+    /// <summary>Pallet đổ: xoay quanh mép dưới, tăng tốc dần rồi nảy nhẹ khi chạm đất, sau đó đổi sang mô hình nằm.</summary>
+    IEnumerator DropRoutine()
+    {
+        Transform t = standingVisual.transform;
+        SavePose(t);
+        standingVisual.SetActive(true);
+        if (droppedVisual) droppedVisual.SetActive(false);
+
+        Vector3 flatForward = Forward;
+        float sign = (predicting ? predictedFallSign : FallSign.Value) >= 0 ? 1f : -1f;
+        if (invertFallDirection) sign = -sign;
+        Vector3 fall = flatForward * sign;                                 // hướng pallet đổ về
+        Vector3 hinge = transform.position - fall * hingeOffset;           // mép bản lề, ở sát đất, phía Survivor
+        Vector3 axis = Vector3.Cross(Vector3.up, fall);                    // quay quanh trục này thì đỉnh ngả về phía 'fall'
+        Vector3 startPos = t.position;
+        Quaternion startRot = t.rotation;
+
+        float dur = Mathf.Max(0.05f, dropDuration);
+        for (float el = 0f; el < dur; el += Time.deltaTime)
+        {
+            float k = el / dur;
+            SetTilt(t, hinge, axis, startPos, startRot, dropAngle * k * k);   // k² = rơi nhanh dần
+            yield return null;
+        }
+
+        // Nảy nhẹ khi chạm đất.
+        const float bounceTime = 0.08f;
+        for (float el = 0f; el < bounceTime; el += Time.deltaTime)
+        {
+            float k = el / bounceTime;
+            SetTilt(t, hinge, axis, startPos, startRot, dropAngle - dropBounce * Mathf.Sin(Mathf.PI * k));
+            yield return null;
+        }
+
+        // Đoán trước mà server chưa xác nhận: giữ mô hình nằm tới hạn chờ; quá hạn vẫn chưa Dropped thì bị từ chối -> dựng lại.
+        if (predicting && CurrentState == PalletState.Standing)
+        {
+            standingVisual.SetActive(false);
+            if (droppedVisual) droppedVisual.SetActive(true);
+            while (CurrentState == PalletState.Standing && Time.time < predictUntil) yield return null;
+        }
+        predicting = false;
+
+        RestoreVisualPose(standingVisual);
+        dropRoutine = null;
+        ApplyVisuals(CurrentState);
+        if (dropDust) dropDust.Play();
+        if (dropSound) AudioSource.PlayClipAtPoint(dropSound, transform.position);
+        else SoundManager.I?.PlaySFX(SoundManager.I.palletDrop, transform.position);
+    }
+
+    static void SetTilt(Transform t, Vector3 hinge, Vector3 axis, Vector3 startPos, Quaternion startRot, float angle)
+    {
+        Quaternion q = Quaternion.AngleAxis(angle, axis);
+        t.position = hinge + q * (startPos - hinge);
+        t.rotation = q * startRot;
+    }
+
+    /// <summary>Pallet bị phá: rung mạnh dần, tới ~70% thời gian thì vỡ thành mảnh văng ra, phần còn lại chờ server chốt trạng thái.</summary>
+    IEnumerator BreakRoutine()
+    {
+        GameObject vis = droppedVisual != null ? droppedVisual : standingVisual;
+        if (vis == null) { breakRoutine = null; yield break; }
+
+        Transform t = vis.transform;
+        SavePose(t);
+        float dur = Mathf.Max(0.3f, breakAnimDuration);
+        float burstAt = dur * 0.7f;
+
+        float el = 0f;
+        for (; el < burstAt; el += Time.deltaTime)
+        {
+            float k = el / burstAt;
+            float amp = 0.01f + 0.05f * k;
+            t.localPosition = savedPos + Random.insideUnitSphere * amp;
+            t.localRotation = savedRot * Quaternion.Euler(Random.Range(-1f, 1f) * 4f * k, 0f, Random.Range(-1f, 1f) * 4f * k);
+            yield return null;
+        }
+
+        t.localPosition = savedPos;
+        t.localRotation = savedRot;
+        SpawnDebris(vis);
+        shattered = true;
+        vis.SetActive(false);
+        if (breakSound) AudioSource.PlayClipAtPoint(breakSound, transform.position);
+        else SoundManager.I?.PlaySFX(SoundManager.I.palletBreak, transform.position);
+
+        if (el < dur) yield return new WaitForSeconds(dur - el);
+
+        breakRoutine = null;
+        ApplyVisuals(CurrentState);   // Destroyed: ẩn hết; nếu server chưa kịp chốt thì vẫn giữ ẩn nhờ cờ shattered
+    }
+
+    /// <summary>Tạo các mảnh gỗ (khối nhỏ cùng chất liệu với pallet) văng ra rồi rơi, thu nhỏ và biến mất.</summary>
+    void SpawnDebris(GameObject source)
+    {
+        Renderer r = source.GetComponentInChildren<Renderer>();
+        if (r == null || debrisCount <= 0) return;
+
+        Bounds b = r.bounds;
+        Material mat = r.sharedMaterial;
+        var pieces = new List<DebrisPiece>(debrisCount);
+
+        for (int i = 0; i < debrisCount; i++)
+        {
+            GameObject g = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Collider c = g.GetComponent<Collider>();
+            if (c != null) Destroy(c);
+            Renderer pr = g.GetComponent<Renderer>();
+            if (mat != null) pr.sharedMaterial = mat;
+
+            Vector3 pos = new Vector3(
+                Random.Range(b.min.x, b.max.x), Random.Range(b.min.y, b.max.y), Random.Range(b.min.z, b.max.z));
+            g.transform.position = pos;
+            g.transform.rotation = Random.rotation;
+            g.transform.localScale = new Vector3(Random.Range(0.06f, 0.2f), Random.Range(0.04f, 0.14f), Random.Range(0.1f, 0.35f));
+
+            Vector3 outward = pos - b.center; outward.y = 0f;
+            if (outward.sqrMagnitude < 0.001f) outward = Random.insideUnitSphere;
+            pieces.Add(new DebrisPiece
+            {
+                t = g.transform,
+                vel = outward.normalized * Random.Range(1.2f, 3.2f) + Vector3.up * Random.Range(1.5f, 3.5f),
+                spin = Random.insideUnitSphere * Random.Range(180f, 540f),
+                baseScale = g.transform.localScale
+            });
+        }
+        StartCoroutine(DebrisRoutine(pieces, transform.position.y));
+    }
+
+    class DebrisPiece { public Transform t; public Vector3 vel; public Vector3 spin; public Vector3 baseScale; }
+
+    IEnumerator DebrisRoutine(List<DebrisPiece> pieces, float groundY)
+    {
+        float life = Mathf.Max(0.3f, debrisLifetime);
+        for (float el = 0f; el < life; el += Time.deltaTime)
+        {
+            float dt = Time.deltaTime;
+            float shrink = Mathf.Clamp01((life - el) / (life * 0.3f));   // 0,3 giây cuối thu nhỏ dần
+            foreach (DebrisPiece d in pieces)
+            {
+                if (d.t == null) continue;
+                d.vel += Vector3.down * 9.8f * dt;
+                Vector3 pos = d.t.position + d.vel * dt;
+                float floor = groundY + d.baseScale.y * 0.5f;
+                if (pos.y < floor) { pos.y = floor; d.vel.y = -d.vel.y * 0.3f; d.vel.x *= 0.6f; d.vel.z *= 0.6f; d.spin *= 0.6f; }
+                d.t.position = pos;
+                d.t.Rotate(d.spin * dt, Space.Self);
+                d.t.localScale = d.baseScale * shrink;
+            }
+            yield return null;
+        }
+        foreach (DebrisPiece d in pieces) if (d.t != null) Destroy(d.t.gameObject);
     }
 
     // ── Server: kiểm tra hợp lệ ───────────────────────────────────────────────
@@ -210,6 +466,9 @@ public class Pallet : NetworkBehaviour
         if (!IsServer || !IsStanding) return;
         if (!ServerCheckActor(clientId, Role.Survivor, out GameObject survivorGo)) return;
 
+        // Pallet đổ về phía ĐỐI DIỆN Survivor (về phía Hunter). Ghi trước State để mọi máy đọc kịp khi State đổi.
+        if (TryGetSide(survivorGo.transform.position, out int dropperSide, out _, ServerRangeMargin))
+            FallSign.Value = (sbyte)-dropperSide;
         State.Value = (byte)PalletState.Dropped;
         TriggerAnimClientRpc("Drop");
         PlayActorAnim(survivorGo, "pallet_drop");
@@ -318,7 +577,7 @@ public class Pallet : NetworkBehaviour
     [ClientRpc]
     void TriggerAnimClientRpc(string triggerName)
     {
-        if (animator != null) animator.SetTrigger(triggerName);
+        if (animator != null && !proceduralAnimation) animator.SetTrigger(triggerName);   // đã dùng animation tự động thì khỏi kích Animator
     }
 
     // Báo mọi máy cho NHÂN VẬT (không phải pallet) chạy một trigger animation.
@@ -342,6 +601,7 @@ public class Pallet : NetworkBehaviour
     [ClientRpc]
     void StunHunterClientRpc(NetworkObjectReference target, Vector3 pos, float yaw, float duration, ClientRpcParams rpcParams = default)
     {
+        SoundManager.I?.PlaySFX(SoundManager.I.palletStun, transform.position);
         // Chỉ máy đang sở hữu đúng nhân vật Hunter này mới xử lý (không dùng LocalClient.PlayerObject:
         // khi Hunter là bot do host sở hữu, LocalClient.PlayerObject lại là Survivor của host).
         if (!target.TryGet(out NetworkObject no) || !no.IsOwner) return;

@@ -59,7 +59,7 @@ public class MatchSpawner : MonoBehaviour
             if (nm.SceneManager != null)
             {
                 nm.SceneManager.OnLoadEventCompleted -= OnLoadCompleted;
-                nm.SceneManager.OnSceneEvent         -= OnSceneEventReceived;
+                nm.SceneManager.OnSceneEvent -= OnSceneEventReceived;
             }
         }
     }
@@ -107,7 +107,16 @@ public class MatchSpawner : MonoBehaviour
     // Kich hoat sau khi TAT CA client load xong (bat dau tran binh thuong)
     void OnLoadCompleted(string sceneName, LoadSceneMode mode, List<ulong> completed, List<ulong> timedOut)
     {
-        if (!IsMatchScene(sceneName)) { spawnedBots.Clear(); return; }
+        bool isMatch = IsMatchScene(sceneName);
+        Debug.Log($"[Spawn] Scene \"{sceneName}\" tải xong, là bản đồ trận: {isMatch}, bot trong roster: {BotRoster.Ids.Count}");
+        spawnedBots.Clear();   // mỗi lần nạp một bản đồ là một trận mới (kể cả khi đổi thẳng từ bản đồ này sang bản đồ khác)
+        if (!isMatch)
+        {
+            if (BotRoster.Ids.Count > 0)
+                Debug.LogWarning($"[Spawn] Scene \"{sceneName}\" KHÔNG nằm trong matchScene/extraMatchScenes của MatchSpawner nên không spawn gì. " +
+                                 "Kiểm tra tên scene bản đồ 2 có trùng LobbyManager.mapScenes không.");
+            return;
+        }
         PrepareSpawnPoints();
         foreach (ulong id in completed) SpawnFor(id);
         foreach (ulong id in timedOut) Debug.LogWarning("Client " + id + " tai scene qua lau, khong spawn.");
@@ -181,13 +190,17 @@ public class MatchSpawner : MonoBehaviour
 
     void SpawnBots()
     {
-        foreach (ulong id in BotRoster.Ids) SpawnBot(id);
+        foreach (ulong id in BotRoster.Ids)
+        {
+            try { SpawnBot(id); }
+            catch (System.Exception e) { Debug.LogError($"[Spawn] Bot {id} spawn lỗi: {e}"); }
+        }
     }
 
     void SpawnBot(ulong botId)
     {
-        if (!spawnedBots.Add(botId)) return;
-        if (!RoleAssignments.Has(botId)) return;
+        if (!spawnedBots.Add(botId)) { Debug.LogWarning($"[Spawn] Bot {botId} đã spawn rồi, bỏ qua."); return; }
+        if (!RoleAssignments.Has(botId)) { Debug.LogWarning($"[Spawn] Bot {botId} chưa có vai (RoleAssignments), không spawn."); return; }
 
         Role role = RoleAssignments.Get(botId);
         int ci = CharacterAssignments.Get(botId);
@@ -197,14 +210,17 @@ public class MatchSpawner : MonoBehaviour
         if (prefab == null) { Debug.LogError("MatchSpawner: chua gan prefab cho bot vai " + role); return; }
 
         GameObject go = Instantiate(prefab);
+        NetworkObject netObj = go.GetComponent<NetworkObject>();
+        if (netObj == null) { Debug.LogError($"[Spawn] Prefab bot {prefab.name} thiếu NetworkObject."); Destroy(go); return; }
+
         NetworkPlayerMovement mv = go.GetComponent<NetworkPlayerMovement>();
         if (mv != null && SlotAssignments.TryGet(botId, out int slot))
         {
             GetStartPose(mv, slot, out Vector3 pos, out float yaw);
             go.transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
         }
+        else Debug.LogWarning($"[Spawn] Bot {botId}: không có slot hoặc thiếu NetworkPlayerMovement, bot đứng ở vị trí prefab.");
 
-        NetworkObject netObj = go.GetComponent<NetworkObject>();
         netObj.DontDestroyWithOwner = true;
         netObj.SpawnWithOwnership(NetworkManager.ServerClientId, true);   // server sở hữu, KHÔNG phải PlayerObject
 

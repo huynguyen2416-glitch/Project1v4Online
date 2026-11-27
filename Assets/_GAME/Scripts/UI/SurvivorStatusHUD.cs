@@ -138,8 +138,21 @@ public class SurvivorStatusHUD : MonoBehaviour
         if (s.state == null) return;
 
         PlayerIdentity id = s.state.GetComponent<PlayerIdentity>();
-        string shown = (id != null && !string.IsNullOrEmpty(id.DisplayName)) ? id.DisplayName : "Survivor";
-        if (s.state.IsLocalPlayer) shown += " (bạn)";
+        // Ô của chính mình: không hiện tên, chỉ ghi "Bạn" (người chơi biết tên mình rồi).
+        bool isMe = s.state.IsLocalPlayer;
+        string shown = isMe ? "Bạn" : ((id != null && !string.IsNullOrEmpty(id.DisplayName)) ? id.DisplayName : "Survivor");
+        // Hiện tên lớp nhân vật
+        SurvivorSkill sk = s.state.GetComponent<SurvivorSkill>();
+        if (sk != null)
+        {
+            switch (sk.Class)
+            {
+                case SurvivorClass.Knight: shown += " ⚔"; break;
+                case SurvivorClass.Athlete: shown += " ⚡"; break;
+                case SurvivorClass.Doctor: shown += " ✚"; break;
+                case SurvivorClass.Sorcerer: shown += " ✦"; break;
+            }
+        }
 
         SurvivorHealth h = s.state.Current;
         string status = StatusText(s.state, h);

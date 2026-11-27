@@ -3508,6 +3508,7 @@ GameObject:
   - component: {fileID: 1030260579}
   - component: {fileID: 1030260585}
   - component: {fileID: 1030260586}
+  - component: {fileID: 1030260587}
   m_Layer: 5
   m_Name: Canvas
   m_TagString: Untagged
@@ -3667,6 +3668,24 @@ MonoBehaviour:
   spacing: 12
   portraits: []
   font: {fileID: 12800000, guid: 794702bfb87373d4892294c03782f89f, type: 3}
+--- !u!114 &1030260587
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1030260578}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 41f235848d8cbcc4dbd6ddffc02a34df, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SkillCooldownHUD
+  offset: {x: 20, y: 20}
+  boxSize: 80
+  font: {fileID: 0}
+  readyColor: {r: 0.3, g: 0.85, b: 0.4, a: 0.9}
+  cooldownColor: {r: 0.3, g: 0.3, b: 0.3, a: 0.7}
+  activeColor: {r: 1, g: 0.9, b: 0.1, a: 0.9}
 --- !u!1001 &1035447498
 PrefabInstance:
   m_ObjectHideFlags: 0

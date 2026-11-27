@@ -41,7 +41,18 @@ public class InteractUI : MonoBehaviour
             return;
         }
 
-        // ── Ưu tiên 2: tự dậy (SelfRevive) — hiện slider như giải mã ──
+        // ── Ưu tiên 2: Doctor tự lành (SurvivorSkill) ──
+        SurvivorSkill sk = SurvivorSkill.Local;
+        if (sk != null && sk.DoctorPrompt != null)
+        {
+            SetPanel(true);
+            float prog = Mathf.Clamp01(sk.DoctorHealPercent);
+            SetSlider(true, prog);
+            if (promptText != null) promptText.text = sk.DoctorPrompt;
+            return;
+        }
+
+        // ── Ưu tiên 3: tự dậy (SelfRevive) — hiện slider như giải mã ──
         SelfRevive sr = SelfRevive.Local;
         if (sr != null && sr.Prompt != null)
         {
@@ -52,7 +63,7 @@ public class InteractUI : MonoBehaviour
             return;
         }
 
-        // ── Ưu tiên 3: lời nhắc không có tiến độ (bế người, pallet, nhảy cửa sổ...) ──
+        // ── Ưu tiên 4: lời nhắc không có tiến độ (bế người, pallet, nhảy cửa sổ...) ──
         string extra = GetExtraPrompt();
         if (extra != null)
         {

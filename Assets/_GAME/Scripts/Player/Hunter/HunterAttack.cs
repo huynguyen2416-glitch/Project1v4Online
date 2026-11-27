@@ -193,12 +193,18 @@ public class HunterAttack : NetworkBehaviour
     {
         if (animator != null && hasAttack) animator.SetTrigger(AttackParam);
         if (IsOwner) move.LockFor(lockOnMiss);
+        SoundManager.I?.PlaySFX(SoundManager.I.hunterSwing, transform.position);
     }
 
     [ClientRpc]
     void ResolveAttackClientRpc(bool isHit, float delay)
     {
-        if (!isHit) return;
+        if (!isHit)
+        {
+            SoundManager.I?.PlaySFX(SoundManager.I.hunterMiss, transform.position);
+            return;
+        }
+        SoundManager.I?.PlaySFX(SoundManager.I.hunterHitSurvivor, transform.position);
         if (IsOwner) move.LockFor(Mathf.Max(0f, lockOnHit - delay));   // LockFor lấy giá trị lớn hơn nên chỉ kéo dài khóa
         StartCoroutine(PlayRecoveryAfterDelay(Mathf.Max(0f, recoveryDelay - delay)));
     }
@@ -212,6 +218,7 @@ public class HunterAttack : NetworkBehaviour
     [ClientRpc]
     void PlayStunClientRpc(float seconds)
     {
+        SoundManager.I?.PlaySFX(SoundManager.I.hunterStun, transform.position);
         if (animator == null || !hasStunned) return;
         if (stunRoutine != null) StopCoroutine(stunRoutine);
         animator.SetBool(StunnedParam, true);

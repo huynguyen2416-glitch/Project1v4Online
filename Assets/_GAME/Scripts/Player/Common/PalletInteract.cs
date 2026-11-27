@@ -187,6 +187,10 @@ public class PalletInteract : NetworkBehaviour
         }
         else if (p.IsStanding)
         {
+            // Client-side prediction: chạy animation đổ NGAY trên máy người đập,
+            // không chờ server xác nhận → phản hồi tức thì, không còn chậm.
+            p.PredictDrop(targetSide);
+
             if (IsBotActive)
                 p.ServerDrop(botCtrl.OriginalClientId);
             else
@@ -204,6 +208,7 @@ public class PalletInteract : NetworkBehaviour
         vaulting = true;
         target = null;
 
+        SoundManager.I?.PlaySFX(SoundManager.I.palletVault, transform.position);
         move.SetVaulting(true);   // khóa di chuyển thường, báo MoveState.Vaulting cho mọi máy
         if (cc != null) cc.enabled = false;
 

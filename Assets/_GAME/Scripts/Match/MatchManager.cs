@@ -109,6 +109,12 @@ public class MatchManager : NetworkBehaviour
         GatesPowered.OnValueChanged += OnGatesPoweredChanged;   // còi: chạy trên mọi máy
         Result.OnValueChanged += OnResultChanged;               // <-- THÊM
         if (RoomService.Instance != null) RoomService.Instance.SetInMatch(true);
+
+        if (SoundManager.I != null)
+        {
+            SoundManager.I.Play2D(SoundManager.I.matchStart);
+            if (SoundManager.I.musicMatch != null) SoundManager.I.PlayMusic(SoundManager.I.musicMatch);
+        }
         if (IsServer)
         {
             PickDungeon();
@@ -129,12 +135,20 @@ public class MatchManager : NetworkBehaviour
 
     void OnGatesPoweredChanged(bool oldValue, bool newValue)
     {
-        if (newValue && sirenAudio != null) sirenAudio.Play();
+        if (newValue)
+        {
+            if (sirenAudio != null) sirenAudio.Play();
+            SoundManager.I?.Play2D(SoundManager.I.gatePowered);
+        }
     }
     void OnResultChanged(byte oldValue, byte newValue)
     {
-        if (newValue != (byte)MatchResult.None && RoomService.Instance != null)
-            RoomService.Instance.SetInMatch(false);   // trận đã có kết quả: không tự nối lại nữa
+        if (newValue != (byte)MatchResult.None)
+        {
+            if (RoomService.Instance != null)
+                RoomService.Instance.SetInMatch(false);   // trận đã có kết quả: không tự nối lại nữa
+            SoundManager.I?.Play2D(SoundManager.I.matchEnd);
+        }
     }
     void PickDungeon()
     {

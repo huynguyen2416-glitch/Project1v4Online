@@ -49,7 +49,11 @@ public class CipherMachine : NetInteractable
             if (!animate) { doneLight.intensity = lightTarget; doneLight.enabled = done; }
             else if (done) doneLight.enabled = true;
         }
-        if (done && animate && doneBurst != null) doneBurst.Play();
+        if (done && animate)
+        {
+            if (doneBurst != null) doneBurst.Play();
+            SoundManager.I?.PlaySFX(SoundManager.I.cipherComplete, transform.position);
+        }
     }
 
     protected override void Update()

@@ -144,6 +144,7 @@ public class PlayerVault : NetworkBehaviour
         vaulting = true;
         target = null;
 
+        SoundManager.I?.PlaySFX(SoundManager.I.vaultWindow, transform.position);
         move.SetVaulting(true);   // khóa di chuyển thường, đứng thẳng, báo MoveState.Vaulting cho mọi máy
         cc.enabled = false;       // đi xuyên qua vật chắn của cửa sổ
 

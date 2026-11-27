@@ -726,6 +726,88 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 133256679}
   m_CullTransparentMesh: 1
+--- !u!1 &148557413
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 148557415}
+  - component: {fileID: 148557414}
+  m_Layer: 0
+  m_Name: Sound
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &148557414
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 148557413}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e9f1d0314514edf4dbddf71249fa61e3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SoundManager
+  hunterSwing: {fileID: 8300000, guid: 683135d40b162e44a9a3141dfde76d6e, type: 3}
+  hunterHitSurvivor: {fileID: 8300000, guid: 230d823c80b5eec47b01d9af98c82ce3, type: 3}
+  hunterMiss: {fileID: 8300000, guid: 683135d40b162e44a9a3141dfde76d6e, type: 3}
+  hunterPickup: {fileID: 8300000, guid: e07e854160ee20846844215582f50088, type: 3}
+  hunterDrop: {fileID: 8300000, guid: 9b64ae81b61eb544caa46e4e9ed6b143, type: 3}
+  hunterStun: {fileID: 8300000, guid: 97ccd04e41c15b94cbaffb0abc140646, type: 3}
+  survivorHurt: {fileID: 8300000, guid: 2c45ac1bb68300d4a8c5a7bc5ddda66b, type: 3}
+  survivorDown: {fileID: 8300000, guid: 1377a65c5871236449b04c079dec357a, type: 3}
+  survivorHeal: {fileID: 8300000, guid: 5af3d424ec02ab24ea7cfaf1075e3d12, type: 3}
+  survivorRescued: {fileID: 0}
+  survivorEscaped: {fileID: 0}
+  skillKnight: {fileID: 8300000, guid: 24bdc21c33344484291bdcbb97a85bfc, type: 3}
+  skillKnightAbsorb: {fileID: 8300000, guid: a24b695f8aafbb34589793437f69a844, type: 3}
+  skillAthlete: {fileID: 8300000, guid: eeaa49d45e2efcd4fb86e551fc91ba02, type: 3}
+  skillDoctor: {fileID: 8300000, guid: 346af6b5d2265dc45baad78a3371aa09, type: 3}
+  skillSorcerer: {fileID: 8300000, guid: ba47441e558554d43b4721edb313e7a2, type: 3}
+  palletDrop: {fileID: 8300000, guid: 4e860e5c47a0fb64192cfd5a80af44e1, type: 3}
+  palletBreak: {fileID: 8300000, guid: 62a6bf73657f691458ceb74440299ebb, type: 3}
+  palletVault: {fileID: 8300000, guid: 7f6cdf19c83e88041a3493ecaa5051a3, type: 3}
+  palletStun: {fileID: 8300000, guid: 4e860e5c47a0fb64192cfd5a80af44e1, type: 3}
+  cipherProgress: {fileID: 8300000, guid: 295debdc26b203d4eb899bf43ef6914b, type: 3}
+  cipherComplete: {fileID: 8300000, guid: 286d30390ec4a65468921ac9605f8026, type: 3}
+  gatePowered: {fileID: 8300000, guid: 89da91fca223c50429c48ecf76b6dc3e, type: 3}
+  gateOpen: {fileID: 8300000, guid: eb911f96fb6b3ab4880a72ac2b97f8d8, type: 3}
+  chairPlace: {fileID: 0}
+  chairTick: {fileID: 8300000, guid: 1a5d91da3b7319a428d6fb63563d389d, type: 3}
+  vaultWindow: {fileID: 8300000, guid: 7f6cdf19c83e88041a3493ecaa5051a3, type: 3}
+  footstepRun: {fileID: 8300000, guid: 71f0f379a4dc95e4b990f1f24026ce39, type: 3}
+  footstepCrouch: {fileID: 8300000, guid: 71f0f379a4dc95e4b990f1f24026ce39, type: 3}
+  uiClick: {fileID: 8300000, guid: 5758979bd95d5694c940332c17a8714e, type: 3}
+  matchStart: {fileID: 8300000, guid: 6a1b6aabdc7b4ef4d8d2fca7230087cb, type: 3}
+  matchEnd: {fileID: 8300000, guid: 97615338e7b890248883534badf324b9, type: 3}
+  musicLobby: {fileID: 8300000, guid: 0f06503200398ee4d80925eccbd1370d, type: 3}
+  musicMatch: {fileID: 8300000, guid: 96a74320e63e11b40b45270a8ab9e0be, type: 3}
+  musicChase: {fileID: 8300000, guid: 4778802f24a0d45489a92e2c63ef9a46, type: 3}
+  sfxVolume: 1
+  musicVolume: 1
+  maxSFXDistance: 40
+--- !u!4 &148557415
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 148557413}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &182228814
 GameObject:
   m_ObjectHideFlags: 0
@@ -4552,7 +4634,10 @@ MonoBehaviour:
   - "Ph\xE1o \u0110\xE0i Tro T\xE0n "
   - "R\u1EEBng Nguy\xEAn Sinh"
   characterNames:
-  - "M\u1EB7c \u0111\u1ECBnh"
+  - The Knight
+  - The Athlete
+  - The Doctor
+  - The Magician
 --- !u!1 &1413374538
 GameObject:
   m_ObjectHideFlags: 0
@@ -5630,7 +5715,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MatchSpawner
   survivorPrefab: {fileID: 8391598782299239889, guid: 4dc0d892c7605fd42bba609a00829d57, type: 3}
   hunterPrefab: {fileID: 3023247272757464774, guid: 2acc8bd3d7f26094197d64ff56aedaba, type: 3}
-  extraSurvivorPrefabs: []
+  extraSurvivorPrefabs:
+  - {fileID: 8391598782299239889, guid: 25cf2647e609bfa4db08f5ab28d85c32, type: 3}
+  - {fileID: 8391598782299239889, guid: 2269fd1a4a228c440b6aff0adbb22c83, type: 3}
+  - {fileID: 8391598782299239889, guid: c964942af73c9a043a49f9c71cbdd48e, type: 3}
   extraHunterPrefabs:
   - {fileID: 0}
   matchScene: Match
@@ -5765,7 +5853,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ConnectionUI
   hostIp: 127.0.0.1
   port: 7777
-  matchSceneName: Match
   lobbySceneName: Lobby
 --- !u!114 &1756352025
 MonoBehaviour:
@@ -7128,3 +7215,4 @@ SceneRoots:
   - {fileID: 1375361928}
   - {fileID: 1648173678}
   - {fileID: 862881500}
+  - {fileID: 148557415}

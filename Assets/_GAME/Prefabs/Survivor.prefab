@@ -204,6 +204,7 @@ GameObject:
   - component: {fileID: 5030317803235522843}
   - component: {fileID: 7439453670676528028}
   - component: {fileID: -6950289208700184235}
+  - component: {fileID: -3271467549492629310}
   m_Layer: 0
   m_Name: Survivor
   m_TagString: Untagged
@@ -265,7 +266,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 463580229
+  GlobalObjectIdHash: 901531268
   InScenePlacedSourceGlobalObjectIdHash: 901531268
   m_InScenePlacedDisabledByDefault: 0
   DeferredDespawnTick: 0
@@ -507,6 +508,28 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SelfRevive
   ShowTopMostFoldoutHeaderGroup: 1
   duration: 12
+--- !u!114 &-3271467549492629310
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8391598782299239889}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c3962757e7967ea42a1a70b683d28018, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SurvivorSkill
+  ShowTopMostFoldoutHeaderGroup: 1
+  skillKey: 113
+  knightCooldown: 45
+  knightShieldColor: {r: 1, g: 0.9, b: 0.1, a: 1}
+  athleteCooldown: 45
+  athleteBoostPercent: 0.3
+  athleteBoostDuration: 2
+  doctorHealDuration: 8
+  sorcererCooldown: 20
+  sorcererDuration: 2
 --- !u!1001 &2672951682763783715
 PrefabInstance:
   m_ObjectHideFlags: 0

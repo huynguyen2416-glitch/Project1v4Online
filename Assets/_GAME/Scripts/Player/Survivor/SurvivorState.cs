@@ -151,7 +151,40 @@ public class SurvivorState : NetworkBehaviour
             animator.SetTrigger(HitParam);
         if (newValue == (byte)SurvivorHealth.Escaped && IsNearOpenDungeon())
             StartCoroutine(HideAfterJump());
+
+        PlayStateSound((SurvivorHealth)oldValue, (SurvivorHealth)newValue);
         Apply();
+    }
+
+    void PlayStateSound(SurvivorHealth prev, SurvivorHealth next)
+    {
+        if (SoundManager.I == null) return;
+        if (prev == next) return;
+
+        switch (next)
+        {
+            case SurvivorHealth.Injured:
+                if (prev == SurvivorHealth.Healthy) SoundManager.I.PlaySFX(SoundManager.I.survivorHurt, transform.position);
+                else if (prev == SurvivorHealth.OnChair) SoundManager.I.PlaySFX(SoundManager.I.survivorRescued, transform.position);
+                else if (prev == SurvivorHealth.Downed) SoundManager.I.PlaySFX(SoundManager.I.survivorHeal, transform.position);
+                break;
+            case SurvivorHealth.Healthy:
+                if (prev == SurvivorHealth.Injured) SoundManager.I.PlaySFX(SoundManager.I.survivorHeal, transform.position);
+                break;
+            case SurvivorHealth.Downed:
+                if (prev == SurvivorHealth.Carried) SoundManager.I.PlaySFX(SoundManager.I.hunterDrop, transform.position);
+                else SoundManager.I.PlaySFX(SoundManager.I.survivorDown, transform.position);
+                break;
+            case SurvivorHealth.Carried:
+                SoundManager.I.PlaySFX(SoundManager.I.hunterPickup, transform.position);
+                break;
+            case SurvivorHealth.OnChair:
+                SoundManager.I.PlaySFX(SoundManager.I.chairPlace, transform.position);
+                break;
+            case SurvivorHealth.Escaped:
+                SoundManager.I.PlaySFX(SoundManager.I.survivorEscaped, transform.position);
+                break;
+        }
     }
     // Đứng trong tầm một hầm ĐÃ MỞ thì coi như vừa nhảy hầm (cổng thì ẩn ngay như cũ).
     bool IsNearOpenDungeon()
@@ -208,6 +241,15 @@ public class SurvivorState : NetworkBehaviour
         }
 
         lastHitTime = Time.time;
+
+        // Knight shield: hấp thụ đòn đầu tiên mà không trừ máu
+        SurvivorSkill skill = GetComponent<SurvivorSkill>();
+        if (skill != null && skill.TryAbsorbHit())
+        {
+            // Đòn bị hấp thụ bởi kỹ năng Tráng sĩ, không trừ máu
+            return true;
+        }
+
         float newHp = Mathf.Max(0f, hp - damage);
         ServerSet(newHp <= 0f ? SurvivorHealth.Downed : (newHp < 1f ? SurvivorHealth.Injured : SurvivorHealth.Healthy));
 

@@ -54,10 +54,10 @@ public class PlayerNameTag : NetworkBehaviour
         id.PlayerName.OnValueChanged += OnName;
         Refresh();
 
-        // Chỉ ẩn khi đây đúng là nhân vật của máy này. So sánh với PlayerObject của client local,
-        // không dùng IsOwner: bot do host sở hữu nên IsOwner = true trên host.
-        NetworkObject mine = NetworkManager != null && NetworkManager.LocalClient != null ? NetworkManager.LocalClient.PlayerObject : null;
-        hidden = hideForOwner && mine != null && mine == NetworkObject;
+        // Chỉ ẩn khi đây đúng là nhân vật của máy này. Dùng IsLocalPlayer (chỉ true với PlayerObject của client local),
+        // không dùng IsOwner: bot do host sở hữu nên IsOwner = true trên host. Không phụ thuộc LocalClient.PlayerObject
+        // (có thể chưa gán đúng lúc OnNetworkSpawn nên từng làm tên của chính mình vẫn hiện).
+        hidden = hideForOwner && IsLocalPlayer;
         if (hidden && label != null) label.gameObject.SetActive(false);
     }
 

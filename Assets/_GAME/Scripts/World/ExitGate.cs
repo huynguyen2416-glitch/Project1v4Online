@@ -28,6 +28,23 @@ public class ExitGate : NetInteractable
         if (IsServer) Powered.Value = value;
     }
 
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        Done.OnValueChanged += OnGateDoneChanged;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        Done.OnValueChanged -= OnGateDoneChanged;
+        base.OnNetworkDespawn();
+    }
+
+    void OnGateDoneChanged(bool _, bool done)
+    {
+        if (done) SoundManager.I?.PlaySFX(SoundManager.I.gateOpen, transform.position);
+    }
+
     protected override Color GetColor()
     {
         if (Done.Value) return Color.green;
