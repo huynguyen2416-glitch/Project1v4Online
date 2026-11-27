@@ -12,7 +12,6 @@ public class ConnectionUI : MonoBehaviour
 {
     [SerializeField] string hostIp = "127.0.0.1";
     [SerializeField] ushort port = 7777;
-    [SerializeField] string matchSceneName = "Match";
     [SerializeField] string lobbySceneName = "Lobby";
 
     string portText;
@@ -30,10 +29,11 @@ public class ConnectionUI : MonoBehaviour
     {
         var nm = NetworkManager.Singleton;
         bool listening = nm != null && nm.IsListening;
-        bool inMatch = listening && SceneManager.GetActiveScene().name == matchSceneName;
+        bool isMatch = SceneManager.GetActiveScene().name != lobbySceneName;
+        bool inMatch = listening && isMatch;
 
-        // Mất kết nối khi đang ở scene Match (bấm Disconnect, bị kick, host thoát): về Lobby để vào lại.
-        if (wasListening && !listening && SceneManager.GetActiveScene().name == matchSceneName)
+        // Mất kết nối khi đang ở scene trận (bấm Disconnect, bị kick, host thoát): về Lobby để vào lại.
+        if (wasListening && !listening && isMatch)
             SceneManager.LoadScene(lobbySceneName);
         wasListening = listening;
 

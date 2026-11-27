@@ -265,7 +265,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 901531268
+  GlobalObjectIdHash: 463580229
   InScenePlacedSourceGlobalObjectIdHash: 901531268
   m_InScenePlacedDisabledByDefault: 0
   DeferredDespawnTick: 0
@@ -442,6 +442,7 @@ MonoBehaviour:
   terrorShockColor: {r: 1, g: 0, b: 1, a: 1}
   terrorShockFlashSeconds: 0.45
   debugKeys: 1
+  dungeonJumpSeconds: 1
 --- !u!114 &151700662526581597
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -472,9 +473,13 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   label: {fileID: 2031270920811237356}
   hideForOwner: 1
+  fontSize: 6
+  heightOffset: -1.75
+  useFixedWorldSize: 1
+  worldSize: 0.02
   nearDistance: 6
   maxScale: 6
-  maxVisibleDistance: 60
+  maxVisibleDistance: 10
 --- !u!114 &7439453670676528028
 MonoBehaviour:
   m_ObjectHideFlags: 0

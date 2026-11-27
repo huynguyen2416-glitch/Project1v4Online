@@ -159,6 +159,13 @@ public class NetworkPlayerMovement : NetworkBehaviour
         SceneManager.sceneLoaded += (_, _2) => spawnCounter = 0;
     }
 
+    /// <summary>Vị trí và hướng của chỗ đứng số slot (0..4) lúc bắt đầu trận.</summary>
+    public void GetSlotPose(int slot, out Vector3 pos, out float yaw)
+    {
+        pos = spawnOrigin + Vector3.right * (spawnSpacing * (Mathf.Abs(slot) % 5));
+        yaw = 0f;
+    }
+
     public override void OnNetworkDespawn() { All.Remove(this); }
 
     public override void OnNetworkSpawn()
@@ -168,6 +175,13 @@ public class NetworkPlayerMovement : NetworkBehaviour
         if (!IsOwner && !IsServer) return;   // server cần enabled để bot chạy sau ChangeOwnership
 
         if (!IsOwner) return;   // phần dưới chỉ cho owner thực sự (người chơi)
+
+        // Bot do server sở hữu (không phải PlayerObject): MatchSpawner đã đặt vị trí; không giành camera của host.
+        if (!NetworkObject.IsPlayerObject)
+        {
+            cc.enabled = ShouldControllerBeOn();
+            return;
+        }
 
         int slot = spawnCounter++ % 5;
         Vector3 pos = spawnOrigin + Vector3.right * (spawnSpacing * slot);

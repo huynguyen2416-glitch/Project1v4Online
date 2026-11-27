@@ -68,13 +68,20 @@ public class SurvivorState : NetworkBehaviour
     [SerializeField] bool debugKeys = false;
 
     static readonly int HealthParam = Animator.StringToHash("healthState");
+    static readonly int HitParam = Animator.StringToHash("hit");
     static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
     static readonly int ColorId = Shader.PropertyToID("_Color");
 
     Renderer[] renderers;
     MaterialPropertyBlock block;
     Animator animator;
-    bool hasHealthParam;
+    bool hasHealthParam, hasHitParam;
+
+    [Header("Nhảy hầm")]
+    [Tooltip("Thời gian giữ model hiện để chạy animation nhảy xuống hầm (giây). Chỉnh bằng độ dài clip.")]
+    [SerializeField] float dungeonJumpSeconds = 1f;
+    bool jumping;   // đang chạy animation nhảy hầm
+
     NetworkPlayerMovement move;
     CharacterController cc;
 
@@ -104,7 +111,10 @@ public class SurvivorState : NetworkBehaviour
         if (animator != null)
         {
             foreach (AnimatorControllerParameter p in animator.parameters)
-                if (p.nameHash == HealthParam) { hasHealthParam = true; break; }
+            {
+                if (p.nameHash == HealthParam) hasHealthParam = true;
+                else if (p.nameHash == HitParam) hasHitParam = true;
+            }
         }
 
         // Ẩn toàn bộ renderer ngay khi tạo ra, tránh flash màu xanh lúc shader chưa compile.
@@ -132,7 +142,33 @@ public class SurvivorState : NetworkBehaviour
         Value.OnValueChanged -= OnChanged;
     }
 
-    void OnChanged(byte oldValue, byte newValue) => Apply();
+    void OnChanged(byte oldValue, byte newValue)
+    {
+        // Chỉ bắn khi Khỏe -> Bị thương. Gục đã có clip ngã riêng (healthState = 2),
+        // bắn thêm sẽ để lại trigger chưa dùng và phát nhầm về sau.
+        if (oldValue == (byte)SurvivorHealth.Healthy && newValue == (byte)SurvivorHealth.Injured
+            && animator != null && hasHitParam)
+            animator.SetTrigger(HitParam);
+        if (newValue == (byte)SurvivorHealth.Escaped && IsNearOpenDungeon())
+            StartCoroutine(HideAfterJump());
+        Apply();
+    }
+    // Đứng trong tầm một hầm ĐÃ MỞ thì coi như vừa nhảy hầm (cổng thì ẩn ngay như cũ).
+    bool IsNearOpenDungeon()
+    {
+        foreach (NetInteractable it in NetInteractable.All)
+            if (it is Dungeon d && d.Open.Value && d.FlatDistance(transform.position) <= d.Range + 0.5f)
+                return true;
+        return false;
+    }
+
+    IEnumerator HideAfterJump()
+    {
+        jumping = true;
+        yield return new WaitForSeconds(dungeonJumpSeconds);
+        jumping = false;
+        if (IsSpawned) Apply();   // lúc này đã Thoát nên model bị ẩn
+    }
 
     // ======================= SERVER =======================
 
@@ -354,7 +390,7 @@ public class SurvivorState : NetworkBehaviour
 
         // Đã thoát/bị loại: ẩn model, khóa di chuyển. Server cũng dùng IsOut để bỏ qua khi tấn công.
         foreach (Renderer r in renderers)
-            if (r != null) r.enabled = !gone;
+            if (r != null) r.enabled = !gone || jumping;
         if (move != null) move.enabled = !gone;
 
         ApplyTint(s);

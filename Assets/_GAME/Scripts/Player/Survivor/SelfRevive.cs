@@ -25,7 +25,10 @@ public class SelfRevive : NetworkBehaviour
 
     SurvivorState state;
     NetworkPlayerMovement move;
-    BotController botCtrl;
+    // Lấy lười: BotController được thêm vào lúc chạy (BotController.Of) SAU khi object đã spawn,
+    // nên không được cache ở Awake (sẽ là null mãi -> bot gửi RPC bằng id của host và bị server từ chối).
+    BotController botCtrlCache;
+    BotController botCtrl => botCtrlCache != null ? botCtrlCache : (botCtrlCache = GetComponent<BotController>());
     CharacterInput input;
 
     bool serverHolding;   // server: owner đang giữ F
@@ -51,13 +54,13 @@ public class SelfRevive : NetworkBehaviour
     {
         state = GetComponent<SurvivorState>();
         move = GetComponent<NetworkPlayerMovement>();
-        botCtrl = GetComponent<BotController>();
+        botCtrlCache = GetComponent<BotController>();
         input = CharacterInput.Of(gameObject);
     }
 
     public override void OnNetworkSpawn()
     {
-        if (IsOwner) Local = this;
+        if (IsLocalPlayer) Local = this;
     }
 
     public override void OnNetworkDespawn()
@@ -75,7 +78,7 @@ public class SelfRevive : NetworkBehaviour
 
     public override void OnGainedOwnership()
     {
-        if (IsOwner) Local = this;
+        if (IsLocalPlayer) Local = this;
     }
 
     void Update()

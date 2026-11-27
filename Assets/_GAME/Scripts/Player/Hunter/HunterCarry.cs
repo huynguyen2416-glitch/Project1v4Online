@@ -48,7 +48,10 @@ public class HunterCarry : NetworkBehaviour
     PlayerRoleInfo role;
     NetworkPlayerMovement move;
     HunterAttack attack;
-    BotController botCtrl;
+    // Lấy lười: BotController được thêm vào lúc chạy (BotController.Of) SAU khi object đã spawn,
+    // nên không được cache ở Awake (sẽ là null mãi -> bot gửi RPC bằng id của host và bị server từ chối).
+    BotController botCtrlCache;
+    BotController botCtrl => botCtrlCache != null ? botCtrlCache : (botCtrlCache = GetComponent<BotController>());
     bool hasPickup, hasDrop, hasIsCarrying;
 
     SurvivorState carried;   // server
@@ -76,7 +79,7 @@ public class HunterCarry : NetworkBehaviour
         input = CharacterInput.Of(gameObject);
         move = GetComponent<NetworkPlayerMovement>();
         attack = GetComponent<HunterAttack>();
-        botCtrl = GetComponent<BotController>();
+        botCtrlCache = GetComponent<BotController>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
 
         if (animator == null) return;
@@ -91,11 +94,8 @@ public class HunterCarry : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         isCarrying.OnValueChanged += OnCarryChanged;
-        if (IsOwner)
-        {
-            Local = this;
-            move.SetSpeedMultiplier(isCarrying.Value ? carrySpeedFactor : 1f);
-        }
+        if (IsLocalPlayer) Local = this;   // không dùng IsOwner: Hunter bot do host sở hữu sẽ cướp Local của host
+        if (IsOwner) move.SetSpeedMultiplier(isCarrying.Value ? carrySpeedFactor : 1f);
         if (animator != null && hasIsCarrying) animator.SetBool(IsCarryingParam, isCarrying.Value);
     }
 

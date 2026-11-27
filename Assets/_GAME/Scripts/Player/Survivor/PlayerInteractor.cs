@@ -18,7 +18,10 @@ public class PlayerInteractor : NetworkBehaviour
     SurvivorState state;
     NetInteractable nearest, current;
     float nextScan;
-    BotController botCtrl;
+    // Lấy lười: BotController được thêm vào lúc chạy (BotController.Of) SAU khi object đã spawn,
+    // nên không được cache ở Awake (sẽ là null mãi -> bot gửi RPC bằng id của host và bị server từ chối).
+    BotController botCtrlCache;
+    BotController botCtrl => botCtrlCache != null ? botCtrlCache : (botCtrlCache = GetComponent<BotController>());
     static readonly int DecodingParam = Animator.StringToHash("isDecoding");
     readonly NetworkVariable<bool> isDecoding = new NetworkVariable<bool>(
         false, NetworkVariableBase.DefaultReadPerm, NetworkVariableWritePermission.Owner);
@@ -37,7 +40,7 @@ public class PlayerInteractor : NetworkBehaviour
         role = GetComponent<PlayerRoleInfo>();
         input = CharacterInput.Of(gameObject);
         state = GetComponent<SurvivorState>();   // có thể null nếu chưa gắn
-        botCtrl = GetComponent<BotController>();
+        botCtrlCache = GetComponent<BotController>();
         animator = GetComponentInChildren<Animator>();
         if (animator != null)
             foreach (AnimatorControllerParameter p in animator.parameters)
@@ -48,7 +51,7 @@ public class PlayerInteractor : NetworkBehaviour
     {
         // Bật cho owner; server cũng cần enabled để bot chạy sau ChangeOwnership
         enabled = IsOwner || IsServer;
-        if (IsOwner) Local = this;
+        if (IsLocalPlayer) Local = this;
         isDecoding.OnValueChanged += OnDecodingChanged;   // mới
         ApplyDecoding(isDecoding.Value);
     }
@@ -112,7 +115,7 @@ public class PlayerInteractor : NetworkBehaviour
                 target.StartUseServerRpc();
 
             if (target.IsInstant) nearest = null;
-            else { current = target; SetDecoding(target is CipherMachine); }
+            else { current = target; SetDecoding(true); }
         }
     }
 

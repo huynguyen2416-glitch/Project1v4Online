@@ -9,6 +9,6 @@ public class PlayerRoleInfo : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer) RoleValue.Value = (byte)RoleAssignments.Get(OwnerClientId);
+        if (IsServer && NetworkObject.IsPlayerObject) RoleValue.Value = (byte)RoleAssignments.Get(OwnerClientId);
     }
 }

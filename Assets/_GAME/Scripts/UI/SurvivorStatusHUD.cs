@@ -139,7 +139,7 @@ public class SurvivorStatusHUD : MonoBehaviour
 
         PlayerIdentity id = s.state.GetComponent<PlayerIdentity>();
         string shown = (id != null && !string.IsNullOrEmpty(id.DisplayName)) ? id.DisplayName : "Survivor";
-        if (s.state.IsOwner) shown += " (bạn)";
+        if (s.state.IsLocalPlayer) shown += " (bạn)";
 
         SurvivorHealth h = s.state.Current;
         string status = StatusText(s.state, h);

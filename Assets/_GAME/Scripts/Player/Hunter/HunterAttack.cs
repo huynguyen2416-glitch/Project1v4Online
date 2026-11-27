@@ -51,7 +51,10 @@ public class HunterAttack : NetworkBehaviour
     PlayerRoleInfo role;
     NetworkPlayerMovement move;
     HunterCarry carry;
-    BotController botCtrl;
+    // Lấy lười: BotController được thêm vào lúc chạy (BotController.Of) SAU khi object đã spawn,
+    // nên không được cache ở Awake (sẽ là null mãi -> bot gửi RPC bằng id của host và bị server từ chối).
+    BotController botCtrlCache;
+    BotController botCtrl => botCtrlCache != null ? botCtrlCache : (botCtrlCache = GetComponent<BotController>());
     bool hasAttack, hasRecovery;
 
     float serverNextAttack;
@@ -71,7 +74,7 @@ public class HunterAttack : NetworkBehaviour
         input = CharacterInput.Of(gameObject);
         move = GetComponent<NetworkPlayerMovement>();
         carry = GetComponent<HunterCarry>();
-        botCtrl = GetComponent<BotController>();
+        botCtrlCache = GetComponent<BotController>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
 
         if (animator != null)

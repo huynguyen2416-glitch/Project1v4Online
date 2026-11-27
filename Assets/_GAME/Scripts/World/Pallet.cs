@@ -212,6 +212,7 @@ public class Pallet : NetworkBehaviour
 
         State.Value = (byte)PalletState.Dropped;
         TriggerAnimClientRpc("Drop");
+        PlayActorAnim(survivorGo, "pallet_drop");
         StunHuntersInDropZone();
         PushSurvivorOutOfPallet(clientId, survivorGo);
     }
@@ -238,6 +239,7 @@ public class Pallet : NetworkBehaviour
         breakTimer = 0f;
         IsBreaking.Value = true;
         TriggerAnimClientRpc("Break");
+        PlayActorAnim(hunter, "break_pallet");
     }
 
     void Update()
@@ -319,6 +321,23 @@ public class Pallet : NetworkBehaviour
         if (animator != null) animator.SetTrigger(triggerName);
     }
 
+    // Báo mọi máy cho NHÂN VẬT (không phải pallet) chạy một trigger animation.
+    void PlayActorAnim(GameObject actor, string triggerName)
+    {
+        NetworkObject no = actor != null ? actor.GetComponent<NetworkObject>() : null;
+        if (no != null) ActorAnimClientRpc(new NetworkObjectReference(no), triggerName);
+    }
+
+    [ClientRpc]
+    void ActorAnimClientRpc(NetworkObjectReference actor, string triggerName)
+    {
+        if (!actor.TryGet(out NetworkObject no)) return;
+        Animator a = no.GetComponentInChildren<Animator>();
+        if (a == null) return;
+        int hash = Animator.StringToHash(triggerName);
+        foreach (AnimatorControllerParameter p in a.parameters)
+            if (p.nameHash == hash) { a.SetTrigger(hash); return; }   // thiếu tham số thì bỏ qua, không báo lỗi
+    }
     /// <summary>Chỉ gửi tới máy của Hunter bị choáng: đẩy ra khỏi pallet và khóa di chuyển.</summary>
     [ClientRpc]
     void StunHunterClientRpc(NetworkObjectReference target, Vector3 pos, float yaw, float duration, ClientRpcParams rpcParams = default)

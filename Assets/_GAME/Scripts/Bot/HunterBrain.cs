@@ -16,9 +16,13 @@ public class HunterBrain : BotBrain
     const float SightRange = 25f;
     const float AttackRange = 1.7f;       // tâm tới tâm; hitbox thật: reach 1.5 + bán kính thân 0.35
     const float DownedNearRange = 6f;     // người gục trong tầm này thì tới bế dù không thấy
-    const float LostMemory = 4f;          // đi tới chỗ cuối cùng thấy Survivor trong ngần này giây
+    const float LostMemory = 6f;          // đi tới chỗ cuối cùng thấy Survivor trong ngần này giây
     const float VaultCooldown = 3f;       // tránh nhảy qua nhảy lại cùng một cửa sổ
 
+    const float ChaseStaleAfter = 20f;   // đuổi cùng một người quá lâu mà chưa hạ được thì điểm của người đó giảm dần (để đổi mục tiêu)
+
+    SurvivorState chaseTarget;
+    float chaseSince;
     Vector3 lastSeenPos;
     float lastSeenTime = -99f;
     float nextVaultAllowed;
@@ -56,8 +60,34 @@ public class HunterBrain : BotBrain
             return;
         }
 
+        Decide();
+    }
+
+    // ---------- Utility AI ----------
+
+    /// <summary>
+    /// Chấm điểm các việc rồi chọn cao nhất:
+    ///   - Bế người gục  : 0,8 (giảm theo khoảng cách).
+    ///   - Đuổi Survivor : 0,55 + gần (tối đa 0,3) + bị thương (0,15) + đang đứng cạnh máy sắp xong (tối đa 0,2)
+    ///                     - đang đứng cạnh pallet còn đứng (0,15) - đuổi quá lâu chưa hạ được (tối đa 0,4); đang đuổi thì nhân 1,2.
+    ///   - Tới chỗ cuối cùng thấy : 0,5 giảm dần theo thời gian.
+    ///   - Tuần tra : 0,3, ưu tiên máy có tiến độ cao.
+    /// Người bị thương gần mà điểm đuổi cao hơn bế người gục thì Hunter đánh nốt rồi mới quay lại bế.
+    /// </summary>
+    void Decide()
+    {
         SurvivorState downed = NearestSurvivor(true);
+        float downedU = 0f;
         if (downed != null)
+            downedU = 0.8f * (1f - 0.4f * Mathf.Clamp01(FlatTo(downed.transform.position) / 40f));
+
+        SurvivorState target = BestChaseTarget(out float chaseU);
+
+        float lostU = 0f;
+        float sinceSeen = Time.time - lastSeenTime;
+        if (sinceSeen < LostMemory) lostU = 0.5f * (1f - sinceSeen / LostMemory);
+
+        if (downed != null && downedU >= chaseU && downedU >= lostU)
         {
             currentTarget = downed;
             SetGoal("Tới bế người gục");
@@ -65,16 +95,17 @@ public class HunterBrain : BotBrain
             return;
         }
 
-        SurvivorState target = NearestSurvivor(false);
-        if (target != null)
+        if (target != null && chaseU >= lostU)
         {
+            if (target != chaseTarget) { chaseTarget = target; chaseSince = Time.time; }
             lastSeenPos = target.transform.position;
             lastSeenTime = Time.time;
             Chase(target);
             return;
         }
 
-        if (Time.time - lastSeenTime < LostMemory)
+        chaseTarget = null;
+        if (lostU > 0f)
         {
             SetGoal("Tìm chỗ cuối cùng thấy Survivor");
             bot.Nav.SetDestination(lastSeenPos, 1.5f);
@@ -82,6 +113,53 @@ public class HunterBrain : BotBrain
         }
 
         Patrol();
+    }
+
+    /// <summary>Survivor đáng đuổi nhất trong số những người nhìn thấy được, kèm điểm.</summary>
+    SurvivorState BestChaseTarget(out float bestScore)
+    {
+        SurvivorState best = null;
+        bestScore = 0f;
+
+        foreach (SurvivorState s in SurvivorState.All)
+        {
+            if (s == null || s.gameObject == bot.gameObject || IsIgnored(s)) continue;
+            if (!s.IsActive || !Sees(s.transform.position, SightRange)) continue;
+
+            Vector3 p = s.transform.position;
+            float d = FlatTo(p);
+            float sc = 0.55f + 0.30f * (1f - Mathf.Clamp01(d / SightRange));
+            if (s.Current == SurvivorHealth.Injured) sc += 0.15f;   // một đòn nữa là gục
+
+            // Đang đứng cạnh máy mã hóa sắp xong: đuổi để cắt ngang.
+            foreach (NetInteractable it in NetInteractable.All)
+            {
+                if (!(it is CipherMachine) || it == null || !it.IsSpawned || it.Done.Value) continue;
+                if (Flat(it.transform.position, p) > 4f) continue;
+                float prog = Mathf.Clamp01(it.Progress.Value);
+                sc += 0.2f * prog;
+                break;
+            }
+
+            // Đứng cạnh pallet còn đứng: đuổi vào sẽ bị đập, kém hấp dẫn hơn.
+            foreach (Pallet pal in Pallet.All)
+            {
+                if (pal == null || !pal.IsStanding || pal.IsDestroyed) continue;
+                if (Flat(pal.transform.position, p) > 3f) continue;
+                sc -= 0.15f;
+                break;
+            }
+
+            if (s == chaseTarget)
+            {
+                sc *= 1.2f;   // đang đuổi thì giữ, tránh đổi mục tiêu liên tục
+                float stale = Mathf.Clamp01((Time.time - chaseSince - ChaseStaleAfter) / ChaseStaleAfter);
+                sc -= 0.4f * stale;   // đuổi quá lâu chưa hạ được thì điểm tụt dần
+            }
+
+            if (sc > bestScore) { bestScore = sc; best = s; }
+        }
+        return best;
     }
 
     // ---------- Bế ----------
@@ -230,20 +308,27 @@ public class HunterBrain : BotBrain
         WanderRandom();
     }
 
+    /// <summary>
+    /// Điểm tuần tra: máy chưa xong có tiến độ càng cao càng đáng ghé (Survivor hay đang làm ở đó); cổng khi đã đủ điện.
+    /// Có thêm ngẫu nhiên nhẹ để Survivor khó đoán và trừ nhẹ theo khoảng cách.
+    /// </summary>
     Object PickPatrolPoint()
     {
         bool gatesPowered = MatchManager.Instance != null && MatchManager.Instance.GatesPowered.Value;
         Object chosen = null;
-        int seen = 0;
+        float bestScore = -1f;
 
         foreach (NetInteractable it in NetInteractable.All)
         {
             if (it == null || !it.IsSpawned || IsIgnored(it)) continue;
-            bool ok = (it is CipherMachine && !it.Done.Value) || (gatesPowered && it is ExitGate && !it.Done.Value);
-            if (!ok) continue;
+            bool machine = it is CipherMachine && !it.Done.Value;
+            bool gate = gatesPowered && it is ExitGate && !it.Done.Value;
+            if (!machine && !gate) continue;
 
-            seen++;
-            if (Random.Range(0, seen) == 0) chosen = it;   // chọn ngẫu nhiên đều trong các điểm hợp lệ
+            float sc = gate ? 0.9f : 0.3f + 0.6f * Mathf.Clamp01(it.Progress.Value);
+            sc *= 1f - 0.3f * Mathf.Clamp01(FlatTo(it.transform.position) / 60f);
+            sc += Random.value * 0.25f;
+            if (sc > bestScore) { bestScore = sc; chosen = it; }
         }
         return chosen;
     }

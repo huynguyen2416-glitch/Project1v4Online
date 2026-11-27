@@ -36,7 +36,10 @@ public class PalletInteract : NetworkBehaviour
     HunterCarry carry;
     PlayerInteractor interactor;
     PlayerVault vault;
-    BotController botCtrl;
+    // Lấy lười: BotController được thêm vào lúc chạy (BotController.Of) SAU khi object đã spawn,
+    // nên không được cache ở Awake (sẽ là null mãi -> bot gửi RPC bằng id của host và bị server từ chối).
+    BotController botCtrlCache;
+    BotController botCtrl => botCtrlCache != null ? botCtrlCache : (botCtrlCache = GetComponent<BotController>());
 
     Pallet target;
     int targetSide;
@@ -92,13 +95,13 @@ public class PalletInteract : NetworkBehaviour
         carry = GetComponent<HunterCarry>();             // Survivor không có, null
         interactor = GetComponent<PlayerInteractor>();   // có thể null
         vault = GetComponent<PlayerVault>();             // có thể null
-        botCtrl = GetComponent<BotController>();
+        botCtrlCache = GetComponent<BotController>();
     }
 
     public override void OnNetworkSpawn()
     {
         enabled = IsOwner || IsServer;   // server cần enabled để bot chạy
-        if (IsOwner) Local = this;
+        if (IsLocalPlayer) Local = this;
     }
 
     public override void OnNetworkDespawn()

@@ -40,6 +40,12 @@ public class MatchManager : NetworkBehaviour
     [Tooltip("Chờ ngần này giây sau khi vào trận mới bắt đầu tính luật, để mọi người kịp spawn.")]
     [SerializeField] float startDelay = 3f;
 
+    [Header("Kết thúc sớm khi không còn ai cứu")]
+    [Tooltip("Bật: nếu mọi Survivor còn lại đều đang ngồi ghế tên lửa (không còn ai để cứu) thì coi như họ bị loại ngay, khỏi chờ hết giờ ghế.")]
+    [SerializeField] bool endWhenNoRescuers = true;
+    [Tooltip("Điều kiện trên phải đúng liên tục ngần này giây mới áp dụng (tránh nhầm trong lúc vừa cứu xong / đang đổi trạng thái).")]
+    [SerializeField] float noRescuerDelay = 1.5f;
+
     public readonly NetworkVariable<int> MachinesDone = new NetworkVariable<int>(0);
     public readonly NetworkVariable<int> Escaped = new NetworkVariable<int>(0);
     public readonly NetworkVariable<bool> GatesPowered = new NetworkVariable<bool>(false);
@@ -203,6 +209,12 @@ public class MatchManager : NetworkBehaviour
             PlayerRoleInfo info = po.GetComponent<PlayerRoleInfo>();
             if (info != null && info.CurrentRole == Role.Survivor) n++;
         }
+        // Bot (do server điều khiển, không nằm trong ConnectedClients) cũng là Survivor của trận.
+        foreach (var kv in BotController.ActiveBots)
+        {
+            BotController bot = kv.Value;
+            if (bot != null && bot.RoleInfo != null && bot.RoleInfo.CurrentRole == Role.Survivor) n++;
+        }
         return n;
     }
 
@@ -241,7 +253,45 @@ public class MatchManager : NetworkBehaviour
             return;
         }
 
+        // 4) Không còn ai cứu: mọi Survivor còn lại đều đang ngồi ghế -> họ chắc chắn bị loại, khỏi chờ hết giờ ghế.
+        if (endWhenNoRescuers) CheckNoRescuers(e, x);
+
         // Bỏ điều kiện tự xử thua khi hết giờ: trận đấu tiếp tục cho tới khi phân định kết quả thực tế
+    }
+
+    float noRescuerSince = -1f;
+
+    /// <summary>
+    /// Số Survivor chưa thoát / chưa bị loại (= totalSurvivors - e - x) đúng bằng số người đang ngồi ghế
+    /// => không còn Survivor nào hoạt động, gục, bị bế hay đang chờ nối lại để đi cứu. Giữ điều kiện này noRescuerDelay giây
+    /// rồi loại luôn những người trên ghế; vòng kiểm tra luật kế tiếp sẽ tự quyết định thắng / thua / hòa như bình thường
+    /// (ví dụ 2 thoát + 1 bị loại + 1 trên ghế => 2 thoát, 2 bị loại => hòa).
+    /// </summary>
+    void CheckNoRescuers(int escaped, int eliminated)
+    {
+        // Hunter đang trong cửa sổ reconnect: ghế tạm dừng đếm ngược nên cũng không kết thúc sớm.
+        if (HunterReconnecting.Value) { noRescuerSince = -1f; return; }
+
+        int unresolved = totalSurvivors - escaped - eliminated;
+        var seated = new List<ulong>();
+        foreach (RocketChair chair in RocketChair.All)
+        {
+            if (chair == null || !chair.IsSpawned || chair.IsFree) continue;
+            ulong id = chair.OccupantId.Value;
+            if (seated.Contains(id)) continue;
+            NetworkObject po = GetPlayerObject(id);
+            SurvivorState st = po != null ? po.GetComponent<SurvivorState>() : null;
+            if (st != null && st.Current == SurvivorHealth.OnChair) seated.Add(id);
+        }
+
+        if (seated.Count == 0 || seated.Count != unresolved) { noRescuerSince = -1f; return; }
+
+        if (noRescuerSince < 0f) { noRescuerSince = Time.time; return; }
+        if (Time.time - noRescuerSince < noRescuerDelay) return;
+
+        Debug.Log($"[Match] Không còn ai cứu: loại {seated.Count} Survivor đang trên ghế.");
+        foreach (ulong id in seated) OnSurvivorEliminated(id);
+        noRescuerSince = -1f;
     }
 
     static MatchResult Compare(int escaped, int eliminated)

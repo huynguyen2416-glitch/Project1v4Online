@@ -31,15 +31,24 @@ public class SurvivorBrain : BotBrain
     const float ThreatMemory = 4f;         // vẫn coi là có Hunter thêm ngần này giây sau khi mất dấu
     const float DangerMemory = 20f;        // nhớ chỗ Hunter lần cuối để tránh các việc ở gần đó
     const float AvoidTaskRadius = 14f;     // việc nằm trong bán kính này quanh chỗ Hunter vừa xuất hiện thì bỏ qua
-    const float DropRange = 5f;            // Hunter gần hơn mức này mới đập pallet
+    const float DropRange = 2.0f;          // Hunter cách TÂM PALLET gần hơn mức này mới đập (vùng choáng của pallet là 2,2 m)
+    const float VaultPalletRange = 10f;    // pallet đã nằm: trèo qua khi Hunter cùng phía và còn trong tầm này (để pallet chắn giữa hai bên)
+    const float ShortcutRange = 7f;        // tìm pallet đã nằm để trèo đi tắt trong bán kính này
+    const float DropPanicRange = 3.0f;     // Hunter cách BOT gần hơn mức này thì đập luôn dù chưa vào vùng choáng
+    const float CloseThreat = 6f;          // Survivor KHÔNG bị truy đuổi chỉ bỏ việc chạy khi Hunter gần hơn mức này
+    const float ChaseMargin = 1.5f;        // Mình chỉ là "người bị đuổi" khi không có ai gần Hunter hơn mình trừ ngần này mét
     const float VaultWindowRange = 8f;     // Hunter gần hơn mức này mới nhảy cửa sổ
-    const float MaxWaitAtObstacle = 6f;    // chờ Hunter lại gần tối đa ngần này giây rồi thôi
+    const float MaxWaitAtObstacle = 10f;   // chờ Hunter lại gần tối đa ngần này giây rồi thôi
     const float HelpSafeRange = 20f;       // chỉ đi cứu / hồi máu khi Hunter (nếu có) xa hơn mức này
     const float ObstacleSearch = 18f;      // tìm pallet / cửa sổ để chạy tới trong bán kính này
     const float StallSeconds = 4f;         // đang "làm" mà tiến độ đứng yên ngần này giây thì buông
 
     Vector3 lastHunterPos;
-    float lastHunterTime = -99f;
+    float lastHunterTime = -99f;     // lần cuối thấy Hunter (dùng để tránh các việc ở gần chỗ đó)
+    float lastThreatTime = -99f;     // lần cuối mình là người bị Hunter nhắm tới (dùng để quyết định chạy trốn)
+
+    static SurvivorState[] survivors = new SurvivorState[0];
+    static float survivorsAt = -99f;
 
     Object currentTarget;
     float waitInRange;
@@ -89,19 +98,44 @@ public class SurvivorBrain : BotBrain
         Transform hunter = NearestHunter(out float hunterDist);
         bool seen = hunter != null && hunterDist <= SightRange && Sees(hunter.position, SightRange);
         bool heard = hunter != null && hunterDist <= TerrorRadius;   // không cần nhìn thấy
-        if (seen || heard)
+        bool aware = seen || heard;
+        if (aware)
         {
             lastHunterPos = hunter.position;
             lastHunterTime = Time.time;
         }
 
-        if (seen || heard || Time.time - lastHunterTime < ThreatMemory)
-        {
-            Flee(lastHunterPos);
-            return;
-        }
+        // Chỉ người bị truy đuổi (gần Hunter nhất) mới chạy trốn; những người còn lại tiếp tục giải máy / cứu người.
+        // Ngoại lệ: Hunter đã áp sát thì ai cũng phải tránh.
+        bool targeted = aware && (IsChaseTarget(hunter) || hunterDist < CloseThreat);
+        if (targeted) lastThreatTime = Time.time;
+        bool threatened = targeted || Time.time - lastThreatTime < ThreatMemory;
 
-        DoTasks(hunter != null ? hunterDist : float.MaxValue);
+        Decide(threatened, hunter != null ? hunterDist : float.MaxValue);
+    }
+
+    /// <summary>
+    /// Mình có phải Survivor gần Hunter nhất không (không tính người đã gục / bị bế / lên ghế / rời trận)?
+    /// Có thêm ChaseMargin để khi hai người ngang nhau thì không đổi qua đổi lại.
+    /// </summary>
+    static void RefreshSurvivors()
+    {
+        if (Time.time - survivorsAt <= 0.5f) return;
+        survivors = Object.FindObjectsByType<SurvivorState>(FindObjectsSortMode.None);
+        survivorsAt = Time.time;
+    }
+
+    bool IsChaseTarget(Transform hunter)
+    {
+        RefreshSurvivors();
+
+        float mine = Flat(Me.position, hunter.position);
+        foreach (SurvivorState s in survivors)
+        {
+            if (s == null || s.gameObject == bot.gameObject || !s.IsActive) continue;
+            if (Flat(s.transform.position, hunter.position) < mine - ChaseMargin) return false;
+        }
+        return true;
     }
 
     // ---------- Gục ----------
@@ -148,7 +182,13 @@ public class SurvivorBrain : BotBrain
             SetGoal("Chạy tới " + ob.name);
             // Đi tới điểm trên trục xuyên qua pallet / cửa sổ (cùng phía với bot), KHÔNG đi tới tâm:
             // collider của pallet / cửa sổ chặn bot ở hai bên hông, tức là ngoài vùng tương tác.
-            bot.Nav.SetDestination(ApproachPoint(ob, Me.position), 0.35f);
+            // Pallet đang đứng: đi tới phía XA Hunter (đi xuyên qua pallet đứng được) để đập khi Hunter tới sát giữa ván.
+            // Pallet đã nằm / cửa sổ: đứng cùng phía với mình để trèo sang phía xa Hunter.
+            Pallet standing = ob.GetComponent<Pallet>();
+            Vector3 dest = (standing != null && standing.IsStanding)
+                ? FarSidePoint(ob, hunterPos, Me.position)
+                : ApproachPoint(ob, Me.position);
+            bot.Nav.SetDestination(dest, 0.35f);
             return;
         }
 
@@ -175,18 +215,21 @@ public class SurvivorBrain : BotBrain
 
             if (p.IsStanding)
             {
-                if (hd <= DropRange)
+                float hunterToPallet = Flat(hunterPos, p.transform.position);
+                if (hunterToPallet <= DropRange || hd <= DropPanicRange)
                 {
-                    bot.Pad.PressPallet();   // đập xuống (làm choáng Hunter nếu trong 2,2 m)
+                    bot.Pad.PressPallet();   // đập xuống: Hunter trong vùng choáng bị choáng
                     SetGoal("Đập pallet");
                     return true;
                 }
-                if (WaitHere(p.transform, "Chờ Hunter lại gần để đập pallet")) return true;
+                // Đang đứng cùng phía với Hunter mà Hunter còn xa: chưa đứng đúng chỗ, tiếp tục đi sang phía bên kia ván.
+                if (hunterSameSide) return false;
+                if (WaitHere(p.transform, "Đứng sau pallet chờ Hunter tới sát để đập")) return true;
                 return false;
             }
 
             // Pallet đã nằm. Trèo qua chỉ khi Hunter cùng phía (trèo sang phía xa Hunter); khác phía thì pallet đã chắn rồi.
-            if (hunterSameSide && hd <= DropRange + 3f)
+            if (hunterSameSide && hd <= VaultPalletRange)
             {
                 bot.Pad.PressPallet();
                 Ignore(p.transform, 10f);   // đáp xuống vẫn nằm trong vùng pallet: không bấm lần nữa
@@ -312,53 +355,129 @@ public class SurvivorBrain : BotBrain
 
     // ---------- Làm nhiệm vụ ----------
 
-    void DoTasks(float hunterDist)
-    {
-        waitingFor = null;
+    // ---------- Utility AI: chấm điểm từng hành động, chọn điểm cao nhất ----------
 
+    /// <summary>
+    /// Mỗi hành động có điểm 0..~1 (chạy trốn khi áp sát có thể vượt 1). Chọn hành động điểm cao nhất:
+    ///   - Chạy trốn : 0,55 → 1 theo độ gần của Hunter (+0,1 khi đang bị thương); Hunter áp sát (< CloseThreat) thì luôn thắng.
+    ///   - Ra cổng đã mở : 0,95.
+    ///   - Việc cần làm : xem ScoreTask. Máy sắp xong có thể thắng cả chạy trốn khi Hunter còn xa.
+    ///   - Đi dạo : khi không còn gì đáng làm.
+    /// </summary>
+    void Decide(bool threatened, float hunterDist)
+    {
         ExitGate open = FindOpenGate();
-        if (open != null && !IsIgnored(open))
+        bool gateOpen = open != null && !IsIgnored(open);
+
+        float fleeU = 0f;
+        if (threatened)
+        {
+            float d = Mathf.Min(hunterDist, FlatTo(lastHunterPos));
+            fleeU = 0.55f + 0.45f * (1f - Mathf.Clamp01(d / SightRange));
+            if (bot.Survivor.Current == SurvivorHealth.Injured) fleeU += 0.1f;
+            if (d < CloseThreat) fleeU = 1.5f;   // Hunter áp sát: luôn chạy
+        }
+
+        float gateU = gateOpen ? 0.95f : 0f;
+        NetInteractable task = PickTask(hunterDist, out float taskU);
+
+        if (fleeU > 0f && fleeU >= gateU && fleeU >= taskU)
+        {
+            Flee(lastHunterPos);
+            return;
+        }
+
+        waitingFor = null;   // không còn đứng chờ ở pallet / cửa sổ
+
+        if (gateU > 0f && gateU >= taskU)
         {
             currentTarget = open;
+            if (TryShortcut(open.ExitPosition)) return;
             SetGoal("Ra cổng thoát");
             bot.Nav.SetDestination(open.ExitPosition, 0.5f);
             return;
         }
 
-        NetInteractable it = PickInteractable(bot.HelpTeammates && hunterDist > HelpSafeRange);
-        if (it == null) { Wander(); return; }
-        GoInteract(it);
+        if (task != null && taskU > 0.12f) { GoInteract(task); return; }
+        Wander();
     }
 
-    /// <summary>
-    /// Ưu tiên: hầm (0) > mở cổng (1) > cứu / hồi máu (2) > máy mã hóa (3). Cùng mức thì lấy cái gần nhất.
-    /// Việc mức 2 và 3 nằm gần chỗ Hunter vừa xuất hiện (trong DangerMemory giây) thì bỏ qua.
-    /// </summary>
-    NetInteractable PickInteractable(bool helpAllowed)
+    NetInteractable PickTask(float hunterDist, out float bestScore)
     {
         NetInteractable best = null;
-        int bestPri = int.MaxValue;
-        float bestDist = float.MaxValue;
+        bestScore = 0f;
         bool danger = Time.time - lastHunterTime < DangerMemory;
         ulong checkId = bot.OriginalClientId != 0 ? bot.OriginalClientId : bot.OwnerClientId;
+        RefreshSurvivors();
 
         foreach (NetInteractable it in NetInteractable.All)
         {
             if (it == null || !it.IsSpawned || IsIgnored(it)) continue;
             if (!it.IsAvailable || !it.CanUse(checkId)) continue;
 
-            int pri;
-            if (it is Dungeon) pri = 0;
-            else if (it is ExitGate) pri = 1;
-            else if (it is RocketChair || it is HealInteractable) { if (!helpAllowed) continue; pri = 2; }
-            else pri = 3;
-
-            if (danger && pri >= 2 && Flat(it.transform.position, lastHunterPos) < AvoidTaskRadius) continue;
-
-            float d = it.FlatDistance(Me.position);
-            if (pri < bestPri || (pri == bestPri && d < bestDist)) { best = it; bestPri = pri; bestDist = d; }
+            float sc = ScoreTask(it, checkId, hunterDist, danger);
+            if (it == currentTarget) sc *= 1.2f;   // đang làm dở thì ưu tiên thêm, tránh đổi ý liên tục
+            if (sc > bestScore) { bestScore = sc; best = it; }
         }
         return best;
+    }
+
+    float ScoreTask(NetInteractable it, ulong checkId, float hunterDist, bool danger)
+    {
+        float d = it.FlatDistance(Me.position);
+        float s;
+
+        if (it is Dungeon) s = 0.85f;
+        else if (it is ExitGate) s = 0.8f;
+        else if (it is RocketChair chair)
+        {
+            if (!bot.HelpTeammates) return 0f;
+            s = 0.65f + 0.25f * (1f - Mathf.Clamp01(chair.TimeLeft.Value / 30f));   // sắp hết giờ thì gấp hơn
+            ulong r = chair.RescuerId.Value;
+            if (r != RocketChair.None && r != checkId) s *= 0.3f;                   // đã có người đang cứu
+        }
+        else if (it is HealInteractable)
+        {
+            if (!bot.HelpTeammates) return 0f;
+            SurvivorState st = it.GetComponent<SurvivorState>();
+            s = st != null && st.Current == SurvivorHealth.Downed ? 0.6f : 0.35f;   // đỡ người gục quan trọng hơn hồi máu
+        }
+        else
+        {
+            s = 0.5f;   // máy mã hóa
+            int others = CountSurvivorsNear(it.transform.position, 4f);
+            if (others >= 2) s *= 0.4f;          // đã đủ người, đi máy khác
+            else if (others == 1) s *= 0.85f;
+        }
+
+        s *= 1f - 0.5f * Mathf.Clamp01(d / 50f);   // càng xa càng kém hấp dẫn
+
+        if (!it.IsInstant)
+        {
+            float p = Mathf.Clamp01(it.Progress.Value);
+            s += (it == currentTarget ? 0.5f : 0.15f) * p * p;   // sắp xong thì rất đáng làm nốt
+        }
+
+        if (danger)
+        {
+            float dh = Flat(it.transform.position, lastHunterPos);
+            if (dh < AvoidTaskRadius) s *= 0.25f + 0.75f * (dh / AvoidTaskRadius);   // gần chỗ Hunter vừa xuất hiện: giảm điểm
+        }
+        if ((it is RocketChair || it is HealInteractable) && hunterDist < HelpSafeRange) s *= 0.3f;   // Hunter còn gần: đừng đi cứu
+
+        return s;
+    }
+
+    /// <summary>Số Survivor khác (còn chơi) đứng trong bán kính radius quanh điểm p.</summary>
+    int CountSurvivorsNear(Vector3 p, float radius)
+    {
+        int n = 0;
+        foreach (SurvivorState st in survivors)
+        {
+            if (st == null || st.gameObject == bot.gameObject || !st.IsActive) continue;
+            if (Flat(st.transform.position, p) <= radius) n++;
+        }
+        return n;
     }
 
     void GoInteract(NetInteractable it)
@@ -408,8 +527,66 @@ public class SurvivorBrain : BotBrain
             return;
         }
 
+        if (TryShortcut(it.transform.position)) return;
         SetGoal("Đi tới " + it.name);
         bot.Nav.SetDestination(it.transform.position, Mathf.Max(0.5f, it.Range - 0.8f));
+    }
+
+    /// <summary>
+    /// Đi tắt qua pallet đã nằm: nếu đích nằm bên kia pallet và đường NavMesh vòng quá xa (hoặc không có đường), thì đi tới
+    /// sát pallet rồi bấm trèo. Trả về true nếu đang xử lý việc này (đã đặt đích hoặc đã bấm phím).
+    /// </summary>
+    bool TryShortcut(Vector3 goal)
+    {
+        Pallet pick = null;
+        float bestD = ShortcutRange;
+        foreach (Pallet p in Pallet.All)
+        {
+            if (p == null || !p.IsDropped || p.IsDestroyed || p.IsBreaking.Value || IsIgnored(p.transform)) continue;
+            float d = FlatTo(p.transform.position);
+            if (d > bestD) continue;
+
+            int sb = SideOf(p.transform, Me.position), sg = SideOf(p.transform, goal);
+            if (sb == 0 || sg == 0 || sb == sg) continue;                    // đích phải nằm bên kia pallet
+            if (DistToSegment(p.transform.position, Me.position, goal) > 3f) continue;   // pallet phải nằm gần đường thẳng tới đích
+
+            float straight = Flat(Me.position, goal);
+            if (!NavDetourIsLong(goal, straight)) continue;                  // đường bộ không vòng nhiều thì khỏi trèo
+            pick = p;
+            bestD = d;
+        }
+        if (pick == null) return false;
+
+        if (bot.Pallet != null && bot.Pallet.Target == pick)
+        {
+            bot.Pad.PressPallet();
+            Ignore(pick.transform, 10f);   // đáp xuống vẫn nằm trong vùng pallet: không bấm lần nữa
+            SetGoal("Trèo pallet đi tắt");
+            return true;
+        }
+        SetGoal("Đi tới pallet để trèo tắt");
+        bot.Nav.SetDestination(ApproachPoint(pick.transform, Me.position), 0.35f);
+        return true;
+    }
+
+    bool NavDetourIsLong(Vector3 goal, float straight)
+    {
+        if (probePath == null) probePath = new NavMeshPath();
+        if (!NavMesh.SamplePosition(Me.position, out NavMeshHit a, 2f, NavMesh.AllAreas)) return false;
+        if (!NavMesh.SamplePosition(goal, out NavMeshHit b, 3f, NavMesh.AllAreas)) return false;
+        if (!NavMesh.CalculatePath(a.position, b.position, NavMesh.AllAreas, probePath)
+            || probePath.status != NavMeshPathStatus.PathComplete) return true;   // không có đường bộ: chỉ còn cách trèo
+        return PathLength(probePath) > straight * 1.4f + 2f;
+    }
+
+    static float DistToSegment(Vector3 p, Vector3 a, Vector3 b)
+    {
+        p.y = a.y = b.y = 0f;
+        Vector3 ab = b - a;
+        float len2 = ab.sqrMagnitude;
+        if (len2 < 0.0001f) return Vector3.Distance(p, a);
+        float t = Mathf.Clamp01(Vector3.Dot(p - a, ab) / len2);
+        return Vector3.Distance(p, a + ab * t);
     }
 
     void Wander()

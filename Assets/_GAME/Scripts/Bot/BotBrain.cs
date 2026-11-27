@@ -95,6 +95,24 @@ public abstract class BotBrain
         return p;
     }
 
+    /// <summary>
+    /// Điểm đứng trên trục xuyên qua pallet / cửa sổ ở phía XA điểm 'awayFrom' (thường là Hunter).
+    /// Đứng phía này, pallet nằm giữa mình và Hunter: đập khi Hunter tới sát thì Hunter bị choáng còn mình ở bên an toàn.
+    /// Chưa rõ phía của awayFrom (sát đường giữa) thì dùng phía của 'from'.
+    /// </summary>
+    protected static Vector3 FarSidePoint(Transform obstacle, Vector3 awayFrom, Vector3 from, float offset = 0.9f)
+    {
+        Vector3 f = obstacle.forward;
+        f.y = 0f;
+        f = f.sqrMagnitude < 0.0001f ? Vector3.forward : f.normalized;
+        int side = -SideOf(obstacle, awayFrom);
+        if (side == 0) side = SideOf(obstacle, from);
+        if (side == 0) side = 1;
+        Vector3 p = obstacle.position + f * (side * offset);
+        p.y = from.y;
+        return p;
+    }
+
     /// <summary>Có nhìn thấy điểm p (trong tầm, không bị tường chắn) không.</summary>
     protected bool Sees(Vector3 p, float range) => FlatTo(p) <= range && LineOfSight.Clear(Me.position, p, 1f, ~0);
 

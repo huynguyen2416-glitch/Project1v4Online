@@ -16,8 +16,20 @@ public class PlayerIdentity : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer) PlayerName.Value = new FixedString64Bytes(NameAssignments.Get(OwnerClientId));
-        if (IsOwner) RequestRestoreServerRpc();
+        // Bot không phải PlayerObject: owner của nó là host, nên KHÔNG được lấy tên theo OwnerClientId (sẽ ra tên host).
+        // MatchSpawner.SpawnBot tự ghi tên bot ngay sau khi spawn.
+        if (IsServer && NetworkObject.IsPlayerObject) PlayerName.Value = new FixedString64Bytes(NameAssignments.Get(OwnerClientId));
+        if (IsOwner && NetworkObject.IsPlayerObject) RequestRestoreServerRpc();
+    }
+
+    /// <summary>Server: đặt chủ nhân nhân vật này vào chỗ đứng đã chia ở phòng chờ.</summary>
+    public void ServerPlaceOwner(Vector3 pos, float yaw)
+    {
+        if (!IsServer) return;
+        RestorePositionClientRpc(pos, yaw, new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams { TargetClientIds = new[] { OwnerClientId } }
+        });
     }
 
     [ServerRpc]

@@ -854,7 +854,7 @@ GameObject:
   - component: {fileID: 198187744}
   - component: {fileID: 198187743}
   - component: {fileID: 198187742}
-  - component: {fileID: 198187745}
+  - component: {fileID: 198187746}
   m_Layer: 5
   m_Name: LobbyPanel
   m_TagString: Untagged
@@ -935,7 +935,7 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 1920, y: 1080}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!114 &198187745
+--- !u!114 &198187746
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -944,12 +944,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 198187740}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8126eb9c4c4d2e94f85f73e340fd59e8, type: 3}
+  m_Script: {fileID: 11500000, guid: e75dbf31cb9effc48bff1ea7baf2f505, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::LobbySelectionUI
-  lobby: {fileID: 1375361929}
-  mapDropdown: {fileID: 733603490}
-  characterDropdown: {fileID: 840619189}
+  m_EditorClassIdentifier: Assembly-CSharp::LobbyScreen
+  lobby: {fileID: 0}
+  font: {fileID: 12800000, guid: 794702bfb87373d4892294c03782f89f, type: 3}
+  hideOldChildren: 1
+  uiScale: 1
 --- !u!1 &202289192
 GameObject:
   m_ObjectHideFlags: 0
@@ -4546,8 +4547,10 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   mapScenes:
   - Match
+  - Match2
   mapNames:
   - "Ph\xE1o \u0110\xE0i Tro T\xE0n "
+  - "R\u1EEBng Nguy\xEAn Sinh"
   characterNames:
   - "M\u1EB7c \u0111\u1ECBnh"
 --- !u!1 &1413374538
@@ -5351,14 +5354,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d79d0de1e895a864998df8dbf6fcaac4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LobbyUI
-  lobby: {fileID: 1375361929}
-  lobbyPanel: {fileID: 198187740}
-  titleText: {fileID: 464905277}
-  playerListText: {fileID: 1952525451}
-  readyButtonLabel: {fileID: 619704813}
-  hunterToggle: {fileID: 1611789654}
-  hostOnlyGroup: {fileID: 1761244863}
-  statusText: {fileID: 127152004}
 --- !u!114 &1648173675
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5639,7 +5634,8 @@ MonoBehaviour:
   extraHunterPrefabs:
   - {fileID: 0}
   matchScene: Match
-  extraMatchScenes: []
+  extraMatchScenes:
+  - Match2
 --- !u!114 &1756352018
 MonoBehaviour:
   m_ObjectHideFlags: 0

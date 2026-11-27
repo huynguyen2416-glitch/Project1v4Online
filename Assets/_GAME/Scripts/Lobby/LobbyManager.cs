@@ -5,7 +5,7 @@ using UnityEngine.SceneManagement;
 using Unity.Collections;
 /// <summary>
 /// Phòng chờ (scene Lobby). Đặt 1 GameObject trong scene Lobby, gắn NetworkObject + script này.
-/// Tối đa 5 chỗ. Server giữ danh sách, client gửi Ready / "Muốn làm Hunter" / Nhân vật qua ServerRpc.
+/// Tối đa 5 chỗ (người + bot). Host thêm / xóa bot (Survivor hoặc Hunter); bot random nhân vật khi bắt đầu trận. Server giữ danh sách, client gửi Ready / "Muốn làm Hunter" / Nhân vật qua ServerRpc.
 /// Host chọn BẢN ĐỒ (MapIndex đồng bộ cho mọi người). Mỗi người chọn NHÂN VẬT (CharacterIndex) cho vai mình sẽ nhận.
 /// Chạy giống nhau cho LAN và WAN (Relay): kết nối xong là NetworkManager đã chạy, script này không quan tâm cách kết nối.
 /// Không vẽ giao diện: LobbyUI và LobbySelectionUI (Canvas) đọc dữ liệu qua các thuộc tính/sự kiện public bên dưới.
@@ -28,7 +28,10 @@ public class LobbyManager : NetworkBehaviour
     public readonly NetworkVariable<int> MapIndex = new NetworkVariable<int>(0);
 
     NetworkList<LobbyEntry> entries;
+    NetworkList<BotEntry> bots;
     bool debugAnyCount;
+    int nextBotId;       // server
+    int survivorBotSeq;  // server: đánh số tên "Bot Survivor n"
 
     /// <summary>Bắn khi danh sách hoặc bản đồ đổi, khi bật/tắt Debug hoặc khi vừa spawn (để UI vẽ lại).</summary>
     public event Action OnChanged;
@@ -39,6 +42,20 @@ public class LobbyManager : NetworkBehaviour
     public LobbyEntry Get(int i) => entries[i];
     public bool DebugAnyCount => debugAnyCount;
 
+    // ---------------- Bot ----------------
+    public int BotCount => bots.Count;
+    public BotEntry GetBot(int i) => bots[i];
+    /// <summary>Số chỗ đã dùng: người + bot.</summary>
+    public int TotalCount => entries.Count + bots.Count;
+    public bool HunterBotPresent
+    {
+        get { for (int i = 0; i < bots.Count; i++) if (bots[i].IsHunter) return true; return false; }
+    }
+    public bool AnyHumanWantsHunter
+    {
+        get { for (int i = 0; i < entries.Count; i++) if (entries[i].WantsHunter) return true; return false; }
+    }
+
     public int MapCount => mapScenes != null ? mapScenes.Length : 0;
     public string MapName(int i) => (mapNames != null && i >= 0 && i < mapNames.Length) ? mapNames[i] : (mapScenes != null && i >= 0 && i < mapScenes.Length ? mapScenes[i] : "?");
     public int CharacterCount => characterNames != null ? characterNames.Length : 0;
@@ -47,11 +64,13 @@ public class LobbyManager : NetworkBehaviour
     void Awake()
     {
         entries = new NetworkList<LobbyEntry>();
+        bots = new NetworkList<BotEntry>();
     }
 
     public override void OnNetworkSpawn()
     {
         entries.OnListChanged += HandleListChanged;
+        bots.OnListChanged += HandleBotsChanged;
         MapIndex.OnValueChanged += HandleMapChanged;
 
         if (IsServer)
@@ -66,6 +85,7 @@ public class LobbyManager : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         entries.OnListChanged -= HandleListChanged;
+        bots.OnListChanged -= HandleBotsChanged;
         MapIndex.OnValueChanged -= HandleMapChanged;
         if (IsServer && NetworkManager != null)
         {
@@ -75,6 +95,7 @@ public class LobbyManager : NetworkBehaviour
     }
 
     void HandleListChanged(NetworkListEvent<LobbyEntry> e) => OnChanged?.Invoke();
+    void HandleBotsChanged(NetworkListEvent<BotEntry> e) => OnChanged?.Invoke();
     void HandleMapChanged(int oldValue, int newValue) => OnChanged?.Invoke();
 
     int IndexOf(ulong id)
@@ -102,6 +123,8 @@ public class LobbyManager : NetworkBehaviour
     void AddClient(ulong id)
     {
         if (IndexOf(id) >= 0) return;
+        // Phòng đầy mà còn bot: nhường chỗ cho người thật bằng cách bỏ bot cuối.
+        while (entries.Count + bots.Count >= MaxPlayers && bots.Count > 0) bots.RemoveAt(bots.Count - 1);
         if (entries.Count >= MaxPlayers)
         {
             Debug.LogWarning("Phòng đã đủ 5 người, từ chối client " + id);
@@ -132,6 +155,7 @@ public class LobbyManager : NetworkBehaviour
     {
         int i = IndexOf(p.Receive.SenderClientId);
         if (i < 0) return;
+        if (want && HunterBotPresent) return;   // đã có Hunter bot
         LobbyEntry e = entries[i];
         e.WantsHunter = want;
         entries[i] = e;
@@ -183,20 +207,86 @@ public class LobbyManager : NetworkBehaviour
         OnChanged?.Invoke();
     }
 
+    // ---------------- Bot (chỉ host) ----------------
+
+    /// <summary>Nút "+ Thêm bot": thêm một bot Survivor.</summary>
+    public void AddBot()
+    {
+        if (!IsSpawned || !IsServer) return;
+        if (TotalCount >= MaxPlayers) { Say("Phòng đã đủ " + MaxPlayers + " chỗ."); return; }
+        AppendBot(false);
+    }
+
+    /// <summary>
+    /// Nút "Lấp đầy": thêm bot cho đến khi đủ chỗ. Nếu chưa ai làm Hunter (không người nào tick, chưa có Hunter bot)
+    /// thì bot đầu tiên được thêm là Hunter, còn lại là Survivor.
+    /// </summary>
+    public void FillWithBots()
+    {
+        if (!IsSpawned || !IsServer) return;
+        if (TotalCount >= MaxPlayers) { Say("Phòng đã đủ " + MaxPlayers + " chỗ."); return; }
+        bool needHunter = !HunterBotPresent && !AnyHumanWantsHunter;
+        while (TotalCount < MaxPlayers)
+        {
+            AppendBot(needHunter);
+            needHunter = false;
+        }
+    }
+
+    /// <summary>Đổi vai của một bot giữa Survivor và Hunter (chỉ được 1 Hunter trong phòng).</summary>
+    public void ToggleBotRole(int botId)
+    {
+        if (!IsSpawned || !IsServer) return;
+        for (int i = 0; i < bots.Count; i++)
+        {
+            if (bots[i].BotId != botId) continue;
+            BotEntry b = bots[i];
+            if (!b.IsHunter)
+            {
+                if (HunterBotPresent) { Say("Chỉ có 1 Hunter: đã có Hunter bot."); return; }
+                if (AnyHumanWantsHunter) { Say("Đã có người chọn làm Hunter. Bỏ chọn Hunter trước khi đổi bot thành Hunter."); return; }
+                b.IsHunter = true;
+                b.Name = new FixedString64Bytes("Bot Hunter");
+            }
+            else
+            {
+                b.IsHunter = false;
+                b.Name = new FixedString64Bytes("Bot Survivor " + (++survivorBotSeq));
+            }
+            bots[i] = b;
+            return;
+        }
+    }
+
+    /// <summary>Xóa một bot khỏi phòng.</summary>
+    public void RemoveBot(int botId)
+    {
+        if (!IsSpawned || !IsServer) return;
+        for (int i = 0; i < bots.Count; i++)
+            if (bots[i].BotId == botId) { bots.RemoveAt(i); return; }
+    }
+
+    void AppendBot(bool hunter)
+    {
+        string name = hunter ? "Bot Hunter" : "Bot Survivor " + (++survivorBotSeq);
+        bots.Add(new BotEntry { BotId = nextBotId++, IsHunter = hunter, Name = new FixedString64Bytes(name) });
+    }
+
     /// <summary>Nút BẮT ĐẦU TRẬN (chỉ host).</summary>
     public void StartMatch()
     {
         if (!IsSpawned || !IsServer) return;
 
-        int n = entries.Count;
-        if (n == 0) return;
+        int humans = entries.Count;
+        int total = humans + bots.Count;
+        if (humans == 0) return;
 
-        if (!debugAnyCount && n < MaxPlayers)
+        if (!debugAnyCount && total < MaxPlayers)
         {
-            Say($"Chưa đủ {MaxPlayers} người ({n}/{MaxPlayers}). Bật Debug để bắt đầu với số người tùy ý.");
+            Say($"Cần đủ {MaxPlayers} người ({total}/{MaxPlayers}). Thêm bot hoặc bật debug.");
             return;
         }
-        for (int i = 0; i < n; i++)
+        for (int i = 0; i < humans; i++)
         {
             // Host bấm Start nên không bắt buộc host phải bấm Sẵn sàng.
             if (!entries[i].Ready && entries[i].ClientId != NetworkManager.LocalClientId)
@@ -206,37 +296,57 @@ public class LobbyManager : NetworkBehaviour
             }
         }
 
-        // Chọn Hunter: ưu tiên người tick "Muốn làm Hunter", không ai tick thì random.
-        // Chỉ 1 người trong phòng (debug): mặc định là Survivor để test máy/cổng/hầm; tick Hunter thì làm Hunter.
+        // Chọn Hunter: Hunter bot nếu có; không thì người tick "Muốn làm Hunter"; không ai tick thì random trong số người.
+        // Chỉ 1 chỗ trong phòng (debug): mặc định là Survivor để test máy/cổng/hầm; tick Hunter thì làm Hunter.
         ulong hunterId = ulong.MaxValue;
-        if (n >= 2)
+        for (int i = 0; i < bots.Count; i++)
+            if (bots[i].IsHunter) hunterId = BotRoster.IdOf(bots[i].BotId);
+
+        if (hunterId == ulong.MaxValue)
         {
-            var wants = new System.Collections.Generic.List<ulong>();
-            var all = new System.Collections.Generic.List<ulong>();
-            for (int i = 0; i < n; i++)
+            if (total >= 2)
             {
-                all.Add(entries[i].ClientId);
-                if (entries[i].WantsHunter) wants.Add(entries[i].ClientId);
+                var wants = new System.Collections.Generic.List<ulong>();
+                var all = new System.Collections.Generic.List<ulong>();
+                for (int i = 0; i < humans; i++)
+                {
+                    all.Add(entries[i].ClientId);
+                    if (entries[i].WantsHunter) wants.Add(entries[i].ClientId);
+                }
+                var pool = wants.Count > 0 ? wants : all;
+                hunterId = pool[UnityEngine.Random.Range(0, pool.Count)];
             }
-            var pool = wants.Count > 0 ? wants : all;
-            hunterId = pool[UnityEngine.Random.Range(0, pool.Count)];
-        }
-        else if (entries[0].WantsHunter)
-        {
-            hunterId = entries[0].ClientId;
+            else if (entries[0].WantsHunter)
+            {
+                hunterId = entries[0].ClientId;
+            }
         }
 
         RoleAssignments.Clear();
         CharacterAssignments.Clear();
-        for (int i = 0; i < n; i++)
+        SlotAssignments.Clear();
+        BotRoster.Clear();
+
+        int slot = 0;
+        for (int i = 0; i < humans; i++)
         {
             ulong id = entries[i].ClientId;
             RoleAssignments.Set(id, id == hunterId ? Role.Hunter : Role.Survivor);
             CharacterAssignments.Set(id, entries[i].CharacterIndex);
+            SlotAssignments.Set(id, slot++);
+        }
+        for (int i = 0; i < bots.Count; i++)
+        {
+            ulong id = BotRoster.IdOf(bots[i].BotId);
+            RoleAssignments.Set(id, bots[i].IsHunter ? Role.Hunter : Role.Survivor);
+            CharacterAssignments.Set(id, UnityEngine.Random.Range(0, Mathf.Max(1, CharacterCount)));   // bot: nhân vật ngẫu nhiên
+            NameAssignments.Set(id, bots[i].Name.ToString());
+            SlotAssignments.Set(id, slot++);
+            BotRoster.Add(id);
         }
 
         string scene = mapScenes[Mathf.Clamp(MapIndex.Value, 0, mapScenes.Length - 1)];
-        Debug.Log($"[Lobby] Bắt đầu trận: {n} người, bản đồ \"{scene}\", Hunter = " +
+        Debug.Log($"[Lobby] Bắt đầu trận: {humans} người + {bots.Count} bot, bản đồ \"{scene}\", Hunter = " +
                   (hunterId == ulong.MaxValue ? "không có" : "#" + hunterId));
 
         NetworkManager.SceneManager.LoadScene(scene, LoadSceneMode.Single);
