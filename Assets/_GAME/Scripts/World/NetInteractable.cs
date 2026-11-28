@@ -1,35 +1,36 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Lớp cha cho mọi thứ Survivor nhấn F để làm: máy mã hóa, mở cổng, nhảy hầm.
-/// Nhấn F một lần là thanh tiến độ tự chạy; đi xa / di chuyển / nhấn F lần nữa thì buông (tiến độ được giữ).
-/// Riêng thứ nào đặt IsInstant = true (nhảy hầm) thì nhấn F là xong ngay, không có thanh tiến độ.
-/// Client chỉ gửi "bắt đầu / dừng"; SERVER kiểm tra vai, trạng thái, khoảng cách rồi mới cộng tiến độ.
+/// Lá»›p cha cho má»i thá»© Survivor nháº¥n F Ä‘á»ƒ lÃ m: mÃ¡y mÃ£ hÃ³a, má»Ÿ cá»•ng, nháº£y háº§m.
+/// Nháº¥n F má»™t láº§n lÃ  thanh tiáº¿n Ä‘á»™ tá»± cháº¡y; Ä‘i xa / di chuyá»ƒn / nháº¥n F láº§n ná»¯a thÃ¬ buÃ´ng (tiáº¿n Ä‘á»™ Ä‘Æ°á»£c giá»¯).
+/// RiÃªng thá»© nÃ o Ä‘áº·t IsInstant = true (nháº£y háº§m) thÃ¬ nháº¥n F lÃ  xong ngay, khÃ´ng cÃ³ thanh tiáº¿n Ä‘á»™.
+/// Client chá»‰ gá»­i "báº¯t Ä‘áº§u / dá»«ng"; SERVER kiá»ƒm tra vai, tráº¡ng thÃ¡i, khoáº£ng cÃ¡ch rá»“i má»›i cá»™ng tiáº¿n Ä‘á»™.
 /// </summary>
 public abstract class NetInteractable : NetworkBehaviour
 {
-    [SerializeField] protected float duration = 20f;   // giây nếu 1 người làm; nhiều người thì nhanh hơn
+    [SerializeField] protected float duration = 20f;   // giÃ¢y náº¿u 1 ngÆ°á»i lÃ m; nhiá»u ngÆ°á»i thÃ¬ nhanh hÆ¡n
     [SerializeField] float range = 2.5f;
-    [SerializeField] protected Renderer visual;                   // để trống thì tự tìm Renderer
+    [SerializeField] protected Renderer visual;                   // Ä‘á»ƒ trá»‘ng thÃ¬ tá»± tÃ¬m Renderer
 
-    [Header("Chặn xuyên tường (chỉ có tác dụng với thứ bật RequireLineOfSight, vd. máy mã hóa)")]
-    [Tooltip("Độ cao điểm bắn tia kiểm tra tường (ngang ngực), tính từ chân người chơi / từ gốc của vật.")]
+    [Header("Cháº·n xuyÃªn tÆ°á»ng (chá»‰ cÃ³ tÃ¡c dá»¥ng vá»›i thá»© báº­t RequireLineOfSight, vd. mÃ¡y mÃ£ hÃ³a)")]
+    [Tooltip("Äá»™ cao Ä‘iá»ƒm báº¯n tia kiá»ƒm tra tÆ°á»ng (ngang ngá»±c), tÃ­nh tá»« chÃ¢n ngÆ°á»i chÆ¡i / tá»« gá»‘c cá»§a váº­t.")]
     [SerializeField] float losEyeHeight = 1.0f;
-    [Tooltip("Layer được coi là vật cản. Bỏ tick layer nào không muốn chặn.")]
+    [Tooltip("Layer Ä‘Æ°á»£c coi lÃ  váº­t cáº£n. Bá» tick layer nÃ o khÃ´ng muá»‘n cháº·n.")]
     [SerializeField] LayerMask losMask = ~0;
 
     public readonly NetworkVariable<float> Progress = new NetworkVariable<float>(0f);
     public readonly NetworkVariable<bool> Done = new NetworkVariable<bool>(false);
+    public readonly NetworkVariable<bool> InUse = new NetworkVariable<bool>(false);
 
     readonly HashSet<ulong> users = new HashSet<ulong>();
     readonly List<ulong> toRemove = new List<ulong>();
-    /// <summary>Những người đang làm lúc hoàn thành (dùng trong OnCompleted).</summary>
+    /// <summary>Nhá»¯ng ngÆ°á»i Ä‘ang lÃ m lÃºc hoÃ n thÃ nh (dÃ¹ng trong OnCompleted).</summary>
     protected readonly List<ulong> finishers = new List<ulong>();
     float serverProgress;
 
-    /// <summary>Mọi NetInteractable đang spawn, để khỏi phải FindObjectsByType mỗi lần quét.</summary>
+    /// <summary>Má»i NetInteractable Ä‘ang spawn, Ä‘á»ƒ khá»i pháº£i FindObjectsByType má»—i láº§n quÃ©t.</summary>
     public static readonly List<NetInteractable> All = new List<NetInteractable>();
 
     static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
@@ -41,34 +42,34 @@ public abstract class NetInteractable : NetworkBehaviour
     public float Range => range;
     public abstract string PromptText { get; }
     public virtual bool IsAvailable => !Done.Value;
-    /// <summary>true = phải không có tường chắn giữa người chơi và vật này mới làm được (máy mã hóa).</summary>
+    /// <summary>true = pháº£i khÃ´ng cÃ³ tÆ°á»ng cháº¯n giá»¯a ngÆ°á»i chÆ¡i vÃ  váº­t nÃ y má»›i lÃ m Ä‘Æ°á»£c (mÃ¡y mÃ£ hÃ³a).</summary>
     public virtual bool RequireLineOfSight => false;
 
-    /// <summary>Không bị tường chắn giữa actorPos (chân người chơi) và vật này. Vật không bật RequireLineOfSight thì luôn true.</summary>
+    /// <summary>KhÃ´ng bá»‹ tÆ°á»ng cháº¯n giá»¯a actorPos (chÃ¢n ngÆ°á»i chÆ¡i) vÃ  váº­t nÃ y. Váº­t khÃ´ng báº­t RequireLineOfSight thÃ¬ luÃ´n true.</summary>
     public bool HasLineOfSight(Vector3 actorPos)
     {
         if (!RequireLineOfSight) return true;
         return LineOfSight.Clear(actorPos, transform.position, losEyeHeight, losMask, transform);
     }
-    /// <summary>true = nhấn F là xong ngay, không có thanh tiến độ (ví dụ nhảy hầm).</summary>
+    /// <summary>true = nháº¥n F lÃ  xong ngay, khÃ´ng cÃ³ thanh tiáº¿n Ä‘á»™ (vÃ­ dá»¥ nháº£y háº§m).</summary>
     public virtual bool IsInstant => false;
-    /// <summary>Server hỏi trước khi cho userId làm (ví dụ chặn tự hồi máu cho chính mình). Mặc định cho phép.</summary>
+    /// <summary>Server há»i trÆ°á»›c khi cho userId lÃ m (vÃ­ dá»¥ cháº·n tá»± há»“i mÃ¡u cho chÃ­nh mÃ¬nh). Máº·c Ä‘á»‹nh cho phÃ©p.</summary>
     public virtual bool CanUse(ulong userId) => true;
-    /// <summary>Server: userId đang làm thứ này không? Terror Shock dùng để biết Survivor đang hồi máu hoặc cứu người.</summary>
+    /// <summary>Server: userId Ä‘ang lÃ m thá»© nÃ y khÃ´ng? Terror Shock dÃ¹ng Ä‘á»ƒ biáº¿t Survivor Ä‘ang há»“i mÃ¡u hoáº·c cá»©u ngÆ°á»i.</summary>
     public bool IsUsedBy(ulong clientId) => users.Contains(clientId);
-    /// <summary>Người đang làm thứ này bị Hunter đánh trúng thì Gục ngay (Terror Shock). Lớp con bật nếu cần.</summary>
+    /// <summary>NgÆ°á»i Ä‘ang lÃ m thá»© nÃ y bá»‹ Hunter Ä‘Ã¡nh trÃºng thÃ¬ Gá»¥c ngay (Terror Shock). Lá»›p con báº­t náº¿u cáº§n.</summary>
     public virtual bool TerrorShockOnUse => false;
     protected virtual void OnCompleted() { }
-    /// <summary>Server: có người vừa bắt đầu làm. Lớp con ghi đè nếu cần (ghế tên lửa: khóa người cứu).</summary>
+    /// <summary>Server: cÃ³ ngÆ°á»i vá»«a báº¯t Ä‘áº§u lÃ m. Lá»›p con ghi Ä‘Ã¨ náº¿u cáº§n (gháº¿ tÃªn lá»­a: khÃ³a ngÆ°á»i cá»©u).</summary>
     protected virtual void OnUserAdded(ulong id) { }
-    /// <summary>Server: có người vừa buông (đi xa, nhấn F lần nữa, bị đánh, rớt mạng...). Không gọi khi làm xong.</summary>
+    /// <summary>Server: cÃ³ ngÆ°á»i vá»«a buÃ´ng (Ä‘i xa, nháº¥n F láº§n ná»¯a, bá»‹ Ä‘Ã¡nh, rá»›t máº¡ng...). KhÃ´ng gá»i khi lÃ m xong.</summary>
     protected virtual void OnUserRemoved(ulong id) { }
     protected virtual Color GetColor() => Color.Lerp(Color.red, Color.green, Progress.Value);
 
     public override void OnNetworkSpawn() { All.Add(this); }
     public override void OnNetworkDespawn() { All.Remove(this); }
 
-    /// <summary>Khoảng cách trên mặt phẳng ngang (bỏ qua chênh lệch độ cao).</summary>
+    /// <summary>Khoáº£ng cÃ¡ch trÃªn máº·t pháº³ng ngang (bá» qua chÃªnh lá»‡ch Ä‘á»™ cao).</summary>
     public float FlatDistance(Vector3 p)
     {
         Vector3 d = p - transform.position;
@@ -83,15 +84,15 @@ public abstract class NetInteractable : NetworkBehaviour
         ulong id = p.Receive.SenderClientId;
         if (!IsAvailable || !CanUse(id)) return;
         if (!TryGetSurvivor(id, out Transform t)) return;
-        if (FlatDistance(t.position) > range + 0.5f) return;   // dung sai cho độ trễ
-        if (!HasLineOfSight(t.position)) return;                // bị tường chắn
+        if (FlatDistance(t.position) > range + 0.5f) return;   // dung sai cho Ä‘á»™ trá»…
+        if (!HasLineOfSight(t.position)) return;                // bá»‹ tÆ°á»ng cháº¯n
         if (IsInstant) { CompleteInstantly(id); return; }
         if (users.Add(id)) OnUserAdded(id);
     }
 
-    /* ════════════ Server Direct (Bot dùng, bypass RPC) ════════════ */
+    /* â•â•â•â•â•â•â•â•â•â•â•â• Server Direct (Bot dÃ¹ng, bypass RPC) â•â•â•â•â•â•â•â•â•â•â•â• */
 
-    /// <summary>Bot trên server gọi trực tiếp, không qua RPC. Dùng OriginalClientId.</summary>
+    /// <summary>Bot trÃªn server gá»i trá»±c tiáº¿p, khÃ´ng qua RPC. DÃ¹ng OriginalClientId.</summary>
     public void ServerStartUse(ulong originalClientId, Transform actor)
     {
         if (!IsServer || MatchManager.Ended) return;
@@ -102,7 +103,7 @@ public abstract class NetInteractable : NetworkBehaviour
         if (users.Add(originalClientId)) OnUserAdded(originalClientId);
     }
 
-    /// <summary>Bot trên server gọi trực tiếp.</summary>
+    /// <summary>Bot trÃªn server gá»i trá»±c tiáº¿p.</summary>
     public void ServerStopUse(ulong originalClientId)
     {
         if (!IsServer) return;
@@ -110,8 +111,8 @@ public abstract class NetInteractable : NetworkBehaviour
     }
 
     /// <summary>
-    /// Đưa tiến độ về 0 để dùng lại (ghế tên lửa, hồi máu). keepFinishers = true: những người vừa làm xong vẫn tiếp tục làm.
-    /// Gọi trong OnCompleted.
+    /// ÄÆ°a tiáº¿n Ä‘á»™ vá» 0 Ä‘á»ƒ dÃ¹ng láº¡i (gháº¿ tÃªn lá»­a, há»“i mÃ¡u). keepFinishers = true: nhá»¯ng ngÆ°á»i vá»«a lÃ m xong váº«n tiáº¿p tá»¥c lÃ m.
+    /// Gá»i trong OnCompleted.
     /// </summary>
     protected void ServerResetProgress(bool keepFinishers = false)
     {
@@ -121,7 +122,7 @@ public abstract class NetInteractable : NetworkBehaviour
         if (keepFinishers) foreach (ulong id in finishers) users.Add(id);
     }
 
-    /// <summary>Hoàn thành ngay trên server cho thứ IsInstant (không qua thanh tiến độ).</summary>
+    /// <summary>HoÃ n thÃ nh ngay trÃªn server cho thá»© IsInstant (khÃ´ng qua thanh tiáº¿n Ä‘á»™).</summary>
     void CompleteInstantly(ulong id)
     {
         if (Done.Value) return;
@@ -140,16 +141,16 @@ public abstract class NetInteractable : NetworkBehaviour
     }
 
     /// <summary>
-    /// Lấy Survivor của clientId nếu hợp lệ. Mặc định phải còn hành động được (Khỏe/Bị thương).
-    /// allowDowned = true: cho cả người đang Gục (dùng khi kiểm tra thoát qua cổng, vì người gục vẫn bò ra cổng được).
-    /// Hỗ trợ bot: nếu clientId không còn trong ConnectedClients, tìm trong BotController.ActiveBots.
+    /// Láº¥y Survivor cá»§a clientId náº¿u há»£p lá»‡. Máº·c Ä‘á»‹nh pháº£i cÃ²n hÃ nh Ä‘á»™ng Ä‘Æ°á»£c (Khá»e/Bá»‹ thÆ°Æ¡ng).
+    /// allowDowned = true: cho cáº£ ngÆ°á»i Ä‘ang Gá»¥c (dÃ¹ng khi kiá»ƒm tra thoÃ¡t qua cá»•ng, vÃ¬ ngÆ°á»i gá»¥c váº«n bÃ² ra cá»•ng Ä‘Æ°á»£c).
+    /// Há»— trá»£ bot: náº¿u clientId khÃ´ng cÃ²n trong ConnectedClients, tÃ¬m trong BotController.ActiveBots.
     /// </summary>
     protected static bool TryGetSurvivor(ulong clientId, out Transform t, bool allowDowned = false)
     {
         t = null;
         NetworkManager nm = NetworkManager.Singleton;
 
-        // Thử từ ConnectedClients trước (người chơi đang kết nối)
+        // Thá»­ tá»« ConnectedClients trÆ°á»›c (ngÆ°á»i chÆ¡i Ä‘ang káº¿t ná»‘i)
         if (nm != null && nm.ConnectedClients.TryGetValue(clientId, out var c) && c.PlayerObject != null)
         {
             PlayerRoleInfo info = c.PlayerObject.GetComponent<PlayerRoleInfo>();
@@ -166,7 +167,7 @@ public abstract class NetInteractable : NetworkBehaviour
             return true;
         }
 
-        // Fallback: tìm trong bot đang hoạt động (client đã disconnect, bot đang thay)
+        // Fallback: tÃ¬m trong bot Ä‘ang hoáº¡t Ä‘á»™ng (client Ä‘Ã£ disconnect, bot Ä‘ang thay)
         if (BotController.ActiveBots.TryGetValue(clientId, out BotController bot) && bot != null && bot.NetObj != null)
         {
             PlayerRoleInfo info = bot.RoleInfo;
@@ -190,18 +191,25 @@ public abstract class NetInteractable : NetworkBehaviour
 
     protected virtual void Update()
     {
-        
+        if (!IsServer) return;
 
-        if (!IsServer || Done.Value || users.Count == 0) return;
+        bool active = !Done.Value && users.Count > 0;
+        if (InUse.Value != active) InUse.Value = active;
+
+        if (Done.Value || users.Count == 0) return;
 
         toRemove.Clear();
         foreach (ulong id in users)
         {
             if (!IsAvailable || !CanUse(id) || !TryGetSurvivor(id, out Transform t) || FlatDistance(t.position) > range + 0.5f || !HasLineOfSight(t.position))
-                toRemove.Add(id);   // đi xa / rớt mạng / bị đánh / hết hiệu lực -> buông
+                toRemove.Add(id);   // Ä‘i xa / rá»›t máº¡ng / bá»‹ Ä‘Ã¡nh / háº¿t hiá»‡u lá»±c -> buÃ´ng
         }
         foreach (ulong id in toRemove) { if (users.Remove(id)) OnUserRemoved(id); }
-        if (users.Count == 0) return;
+        if (users.Count == 0)
+        {
+            if (InUse.Value) InUse.Value = false;
+            return;
+        }
 
         float speed = users.Count switch { 1 => 1f, 2 => 1.6f, 3 => 2.0f, _ => 2.2f };
         serverProgress = Mathf.Min(1f, serverProgress + speed * Time.deltaTime / duration);
@@ -211,6 +219,7 @@ public abstract class NetInteractable : NetworkBehaviour
         if (serverProgress >= 1f)
         {
             Done.Value = true;
+            InUse.Value = false;
             finishers.Clear();
             finishers.AddRange(users);
             users.Clear();

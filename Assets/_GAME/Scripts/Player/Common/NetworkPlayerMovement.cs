@@ -48,6 +48,7 @@ public class NetworkPlayerMovement : NetworkBehaviour
     float timedLockUntil;
     readonly System.Collections.Generic.HashSet<object> lockers = new System.Collections.Generic.HashSet<object>();
     float speedMultiplier = 1f;
+    float nextStepTime;
 
     public bool IsVaulting { get; private set; }
 
@@ -83,12 +84,20 @@ public class NetworkPlayerMovement : NetworkBehaviour
     public bool IsLocked => lockers.Count > 0 || Time.time < timedLockUntil;
 
     /// <summary>Khóa di chuyển và thao tác trong seconds giây (đánh, bế, thả...). Chỉ gọi trên máy chủ nhân.</summary>
-    public void LockFor(float seconds)
+    /// <summary>Trả về mốc hết khóa (dùng làm "vé" cho CancelTimedLock), hoặc 0 nếu seconds &lt;= 0.</summary>
+    public float LockFor(float seconds)
     {
-        if (seconds <= 0f) return;
+        if (seconds <= 0f) return 0f;
         bool was = IsLocked;
         timedLockUntil = Mathf.Max(timedLockUntil, Time.time + seconds);
         if (!was) StopMoving();
+        return timedLockUntil;
+    }
+
+    /// <summary>Hủy khóa theo giờ đã đặt bằng LockFor, chỉ khi chưa có nơi khác kéo dài nó (token = giá trị LockFor trả về).</summary>
+    public void CancelTimedLock(float token)
+    {
+        if (token > 0f && Mathf.Approximately(timedLockUntil, token)) timedLockUntil = 0f;
     }
 
     /// <summary>Mỗi nơi khóa tự khai báo (truyền this) nên mở khóa của nơi này không mở nhầm khóa của nơi khác.</summary>
@@ -199,6 +208,18 @@ public class NetworkPlayerMovement : NetworkBehaviour
         if (!IsSpawned) return;
         if (IsOwner) OwnerUpdate();
         ShowAnimation();
+        UpdateFootsteps();
+    }
+
+    void UpdateFootsteps()
+    {
+        if (!IsMovingNet || SoundManager.I == null) return;
+        if (Time.time < nextStepTime) return;
+
+        bool running = IsRunningNet;
+        nextStepTime = Time.time + (running ? 0.38f : 0.55f);
+        AudioClip clip = running ? SoundManager.I.footstepRun : SoundManager.I.footstepCrouch;
+        if (clip != null) SoundManager.I.PlaySFX(clip, transform.position, running ? 0.6f : 0.3f);
     }
 
     /// <summary>

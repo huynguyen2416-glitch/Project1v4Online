@@ -57,6 +57,8 @@ public class MainMenuController : MonoBehaviour
 
         ShowPanels(false);
         SetStatus("Tạo phòng mới hoặc nhập mã phòng của bạn bè.");
+        if (SoundManager.I != null && SoundManager.I.musicLobby != null)
+            SoundManager.I.PlayMusic(SoundManager.I.musicLobby);
     }
     void SaveName()
     {
@@ -106,6 +108,7 @@ public class MainMenuController : MonoBehaviour
 
     async void OnCreate()
     {
+        SoundManager.I?.PlayUIClick();
         if (nameInput != null) PlayerProfile.Name = nameInput.text;
         if (RoomService.Instance == null) { SetStatus("Thiếu RoomService trên object NetworkManager."); return; }
         SetBusy(true);
@@ -115,6 +118,7 @@ public class MainMenuController : MonoBehaviour
 
     async void OnJoin()
     {
+        SoundManager.I?.PlayUIClick();
         if (nameInput != null) PlayerProfile.Name = nameInput.text;
         if (RoomService.Instance == null) { SetStatus("Thiếu RoomService trên object NetworkManager."); return; }
         SetBusy(true);
@@ -124,6 +128,7 @@ public class MainMenuController : MonoBehaviour
 
     void OnLan()
     {
+        SoundManager.I?.PlayUIClick();
         if (nameInput != null) PlayerProfile.Name = nameInput.text;
         if (lanConnectionUI != null) lanConnectionUI.enabled = true;
         SetStatus("Chơi LAN: nhập IP của host ở khung bên trái rồi bấm Host hoặc Client.");
@@ -131,12 +136,14 @@ public class MainMenuController : MonoBehaviour
 
     void OnCopy()
     {
+        SoundManager.I?.PlayUIClick();
         string code = RoomService.Instance != null ? RoomService.Instance.RoomCode : "";
         if (!string.IsNullOrEmpty(code)) GUIUtility.systemCopyBuffer = code;
     }
 
     async void OnLeave()
     {
+        SoundManager.I?.PlayUIClick();
         if (RoomService.Instance != null && RoomService.Instance.InRoom)
         {
             await RoomService.Instance.LeaveAsync();

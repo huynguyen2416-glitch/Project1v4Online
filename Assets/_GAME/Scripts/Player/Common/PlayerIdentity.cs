@@ -50,6 +50,14 @@ public class PlayerIdentity : NetworkBehaviour
             state.yaw = bot.transform.eulerAngles.y;
             if (bot.Survivor != null) state.health = bot.Survivor.Current;
 
+            // Cooldown/khiên: lấy giá trị "xấu" hơn giữa lúc rớt mạng và lúc bot đang giữ, để không reset kỹ năng bằng cách rớt mạng.
+            SurvivorSkill botSkill = bot.GetComponent<SurvivorSkill>();
+            if (botSkill != null)
+            {
+                state.skillReadyAt = Mathf.Max(state.skillReadyAt, botSkill.CooldownReadyAt.Value);
+                state.knightShield = botSkill.ServerShieldUp;
+            }
+
             // Bàn giao TRƯỚC khi despawn object cũ, vì Hunter và ghế vẫn đang giữ tham chiếu tới object đó.
             SurvivorState newSs = GetComponent<SurvivorState>();
             if (state.role == Role.Survivor && newSs != null && bot.Survivor != null)
@@ -92,6 +100,9 @@ public class PlayerIdentity : NetworkBehaviour
         // 2) Máu (Survivor)
         if (state.role == Role.Survivor)
         {
+            SurvivorSkill newSkill = GetComponent<SurvivorSkill>();
+            if (newSkill != null) newSkill.ServerRestoreSkill(state.skillReadyAt, state.knightShield);
+
             SurvivorState ss = GetComponent<SurvivorState>();
             if (ss != null && !stateApplied)
             {

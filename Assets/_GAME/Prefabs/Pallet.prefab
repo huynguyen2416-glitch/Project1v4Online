@@ -129,7 +129,7 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   standingVisual: {fileID: 8360139108810678219}
   droppedVisual: {fileID: 4588112317175222160}
-  animator: {fileID: 9187348241769161019}
+  animator: {fileID: 0}
   blockCollider: {fileID: 5997187777332039922}
   width: 3.6
   approachDepth: 2.2
@@ -140,6 +140,17 @@ MonoBehaviour:
   vaultArcHeight: 0.2
   vaultDuration: 0.7
   breakAnimDuration: 1.5
+  proceduralAnimation: 1
+  dropDuration: 0.15
+  dropAngle: 85
+  hingeOffset: 0.35
+  invertFallDirection: 0
+  dropBounce: 6
+  debrisCount: 14
+  debrisLifetime: 1.1
+  dropDust: {fileID: 0}
+  dropSound: {fileID: 0}
+  breakSound: {fileID: 0}
 --- !u!95 &9187348241769161019
 Animator:
   serializedVersion: 7

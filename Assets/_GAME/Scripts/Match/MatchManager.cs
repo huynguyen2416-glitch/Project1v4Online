@@ -40,6 +40,15 @@ public class MatchManager : NetworkBehaviour
     [Tooltip("Chờ ngần này giây sau khi vào trận mới bắt đầu tính luật, để mọi người kịp spawn.")]
     [SerializeField] float startDelay = 3f;
 
+    [Header("Nhạc truy đuổi (Terror Radius)")]
+    [SerializeField] float chaseEnterDistance = 18f;
+    [SerializeField] float chaseExitDistance = 24f;
+    [SerializeField] float chaseFadeTime = 0.6f;
+
+    bool inChaseMusic;
+    float nextChaseCheck;
+    Transform cachedHunter;
+
     [Header("Kết thúc sớm khi không còn ai cứu")]
     [Tooltip("Bật: nếu mọi Survivor còn lại đều đang ngồi ghế tên lửa (không còn ai để cứu) thì coi như họ bị loại ngay, khỏi chờ hết giờ ghế.")]
     [SerializeField] bool endWhenNoRescuers = true;
@@ -170,7 +179,10 @@ public class MatchManager : NetworkBehaviour
 
     void Update()
     {
-        if (!IsServer || !IsSpawned) return;
+        if (!IsSpawned) return;
+        UpdateChaseMusic();
+
+        if (!IsServer) return;
         if (Time.time < nextCheck) return;
         nextCheck = Time.time + 0.25f;
 
@@ -185,6 +197,49 @@ public class MatchManager : NetworkBehaviour
         }
 
         UpdateMatchRules();
+    }
+
+    void UpdateChaseMusic()
+    {
+        if (Time.time < nextChaseCheck) return;
+        nextChaseCheck = Time.time + 0.2f;
+
+        if (SoundManager.I == null || SoundManager.I.musicChase == null) return;
+
+        bool shouldChase = false;
+        if (!IsEnded && NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
+        {
+            NetworkObject localPo = NetworkManager.Singleton.LocalClient.PlayerObject;
+            if (localPo != null)
+            {
+                PlayerRoleInfo localRole = localPo.GetComponent<PlayerRoleInfo>();
+                SurvivorState localState = localPo.GetComponent<SurvivorState>();
+                if (localRole != null && localRole.CurrentRole == Role.Survivor && (localState == null || !localState.IsOut))
+                {
+                    if (cachedHunter == null) cachedHunter = FindHunterTransform();
+                    if (cachedHunter != null)
+                    {
+                        float dist = Vector3.Distance(localPo.transform.position, cachedHunter.position);
+                        float threshold = inChaseMusic ? chaseExitDistance : chaseEnterDistance;
+                        shouldChase = dist <= threshold;
+                    }
+                }
+            }
+        }
+
+        if (shouldChase != inChaseMusic)
+        {
+            inChaseMusic = shouldChase;
+            AudioClip clip = inChaseMusic ? SoundManager.I.musicChase : SoundManager.I.musicMatch;
+            if (clip != null) SoundManager.I.PlayMusic(clip, chaseFadeTime);
+        }
+    }
+
+    static Transform FindHunterTransform()
+    {
+        foreach (PlayerRoleInfo info in FindObjectsByType<PlayerRoleInfo>(FindObjectsSortMode.None))
+            if (info != null && info.CurrentRole == Role.Hunter) return info.transform;
+        return null;
     }
 
     int CountAliveSurvivors()

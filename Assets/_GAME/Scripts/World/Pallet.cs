@@ -163,10 +163,27 @@ public class Pallet : NetworkBehaviour
     {
         All.Add(this);
         shattered = false;
+        DisableProceduralAnimators();
         State.OnValueChanged += OnStateChanged;
         IsBreaking.OnValueChanged += OnBreakingChanged;
         ApplyCollider(CurrentState);
         ApplyVisuals(CurrentState);   // vào giữa chừng: hiện thẳng trạng thái hiện tại, không chạy animation
+    }
+
+    void DisableProceduralAnimators()
+    {
+        if (!proceduralAnimation) return;
+        if (animator != null) animator.enabled = false;
+        if (standingVisual != null)
+        {
+            foreach (Animator a in standingVisual.GetComponentsInChildren<Animator>(true))
+                a.enabled = false;
+        }
+        if (droppedVisual != null)
+        {
+            foreach (Animator a in droppedVisual.GetComponentsInChildren<Animator>(true))
+                a.enabled = false;
+        }
     }
 
     public override void OnNetworkDespawn()
@@ -202,6 +219,7 @@ public class Pallet : NetworkBehaviour
     void OnBreakingChanged(bool _, bool breaking)
     {
         if (!breaking || !proceduralAnimation) return;
+        if (predictingBreak && breakRoutine != null) { predictingBreak = false; return; }   // máy Hunter đã chạy đoán trước, server vừa xác nhận
         StopAnimations();
         breakRoutine = StartCoroutine(BreakRoutine());
     }
@@ -232,12 +250,42 @@ public class Pallet : NetworkBehaviour
     public void PredictDrop(int dropperSide)
     {
         if (!proceduralAnimation || standingVisual == null || !IsStanding || dropRoutine != null) return;
+        DisableProceduralAnimators();
         predicting = true;
         predictUntil = Time.time + 0.8f;
         predictedFallSign = -dropperSide;
+        if (blockCollider) blockCollider.enabled = true;
         StopAnimations();
         dropRoutine = StartCoroutine(DropRoutine());
     }
+    bool predictingBreak;     // máy Hunter: đã chạy animation phá trước khi server xác nhận
+
+    /// <summary>
+    /// Máy của Hunter gọi NGAY khi bấm phím (cùng lúc gửi yêu cầu lên server) để pallet rung và vỡ tức thì.
+    /// Server vẫn quyết định: bị từ chối thì BreakRejectedClientRpc (hoặc đến mốc vỡ mà chưa được xác nhận) sẽ hoàn lại pallet.
+    /// </summary>
+    public void PredictBreak()
+    {
+        if (!proceduralAnimation || !IsDropped || IsBreaking.Value || breakRoutine != null) return;
+        predictingBreak = true;
+        StopAnimations();
+        breakRoutine = StartCoroutine(BreakRoutine());
+    }
+
+    /// <summary>Bot trên server bị từ chối: hủy animation đoán trước (đường RPC tự hủy qua BreakRejectedClientRpc).</summary>
+    public void CancelBreakPrediction() => CancelPredictedBreak();
+
+    /// <summary>Hủy animation phá đoán trước: dừng rung, trả lại tư thế và hình pallet theo trạng thái thật.</summary>
+    void CancelPredictedBreak()
+    {
+        if (!predictingBreak) return;
+        predictingBreak = false;
+        if (breakRoutine != null) { StopCoroutine(breakRoutine); breakRoutine = null; }
+        RestoreVisualPose(droppedVisual != null ? droppedVisual : standingVisual);
+        shattered = false;
+        ApplyVisuals(CurrentState);
+    }
+
     bool shattered;   // đã vỡ: không bật lại hình pallet nằm dù trạng thái chưa kịp sang Destroyed
 
     void StopAnimations()
@@ -256,7 +304,7 @@ public class Pallet : NetworkBehaviour
         if (g != null && savedTarget == g.transform) { savedTarget.localPosition = savedPos; savedTarget.localRotation = savedRot; }
     }
 
-    /// <summary>Pallet đổ: xoay quanh mép dưới, tăng tốc dần rồi nảy nhẹ khi chạm đất, sau đó đổi sang mô hình nằm.</summary>
+    /// <summary>Pallet đổ: xoay quanh mép dưới, phản hồi ngay ở frame bấm phím rồi nảy nhẹ khi chạm đất, sau đó đổi sang mô hình nằm.</summary>
     IEnumerator DropRoutine()
     {
         Transform t = standingVisual.transform;
@@ -274,18 +322,26 @@ public class Pallet : NetworkBehaviour
         Quaternion startRot = t.rotation;
 
         float dur = Mathf.Max(0.05f, dropDuration);
-        for (float el = 0f; el < dur; el += Time.deltaTime)
+        float el = 0f;
+        while (el < dur)
         {
-            float k = el / dur;
-            SetTilt(t, hinge, axis, startPos, startRot, dropAngle * k * k);   // k² = rơi nhanh dần
+            el += Time.deltaTime;
+            float k = Mathf.Clamp01(el / dur);
+            float eased = 1f - (1f - k) * (1f - k);
+            SetTilt(t, hinge, axis, startPos, startRot, dropAngle * eased);
             yield return null;
         }
 
+        // Phát âm thanh + bụi ngay lúc pallet chạm đất.
+        if (dropDust) dropDust.Play();
+        if (dropSound) AudioSource.PlayClipAtPoint(dropSound, transform.position);
+        else SoundManager.I?.PlaySFX(SoundManager.I.palletDrop, transform.position);
+
         // Nảy nhẹ khi chạm đất.
         const float bounceTime = 0.08f;
-        for (float el = 0f; el < bounceTime; el += Time.deltaTime)
+        for (float b = 0f; b < bounceTime; b += Time.deltaTime)
         {
-            float k = el / bounceTime;
+            float k = b / bounceTime;
             SetTilt(t, hinge, axis, startPos, startRot, dropAngle - dropBounce * Mathf.Sin(Mathf.PI * k));
             yield return null;
         }
@@ -301,10 +357,8 @@ public class Pallet : NetworkBehaviour
 
         RestoreVisualPose(standingVisual);
         dropRoutine = null;
+        ApplyCollider(CurrentState);
         ApplyVisuals(CurrentState);
-        if (dropDust) dropDust.Play();
-        if (dropSound) AudioSource.PlayClipAtPoint(dropSound, transform.position);
-        else SoundManager.I?.PlaySFX(SoundManager.I.palletDrop, transform.position);
     }
 
     static void SetTilt(Transform t, Vector3 hinge, Vector3 axis, Vector3 startPos, Quaternion startRot, float angle)
@@ -334,6 +388,13 @@ public class Pallet : NetworkBehaviour
             t.localRotation = savedRot * Quaternion.Euler(Random.Range(-1f, 1f) * 4f * k, 0f, Random.Range(-1f, 1f) * 4f * k);
             yield return null;
         }
+
+        if (predictingBreak && !IsBreaking.Value)
+        {
+            CancelPredictedBreak();   // server chưa xác nhận tới mốc vỡ: coi như bị từ chối
+            yield break;
+        }
+        predictingBreak = false;
 
         t.localPosition = savedPos;
         t.localRotation = savedRot;
@@ -482,14 +543,27 @@ public class Pallet : NetworkBehaviour
     public void BreakServerRpc(ServerRpcParams p = default)
     {
         ulong clientId = p.Receive.SenderClientId;
-        ServerBreak(clientId);
+        if (ServerBreak(clientId)) return;
+
+        // Bị từ chối: báo riêng người gửi để hoàn lại pallet đoán trước và mở khóa Hunter.
+        BreakRejectedClientRpc(new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams { TargetClientIds = new[] { clientId } }
+        });
+    }
+
+    [ClientRpc]
+    void BreakRejectedClientRpc(ClientRpcParams rpcParams = default)
+    {
+        CancelPredictedBreak();
+        PalletInteract.Local?.OnBreakRejected();
     }
 
     /// <summary>Bot trên server gọi trực tiếp, dùng OriginalClientId.</summary>
-    public void ServerBreak(ulong clientId)
+    public bool ServerBreak(ulong clientId)
     {
-        if (!IsServer || !IsDropped || breakInProgress) return;
-        if (!ServerCheckActor(clientId, Role.Hunter, out GameObject hunter)) return;
+        if (!IsServer || !IsDropped || breakInProgress) return false;
+        if (!ServerCheckActor(clientId, Role.Hunter, out GameObject hunter)) return false;
 
         HunterAttack atk = hunter.GetComponent<HunterAttack>();
         if (atk != null) atk.ServerBeginAction(breakAnimDuration);
@@ -499,6 +573,7 @@ public class Pallet : NetworkBehaviour
         IsBreaking.Value = true;
         TriggerAnimClientRpc("Break");
         PlayActorAnim(hunter, "break_pallet");
+        return true;
     }
 
     void Update()
@@ -591,12 +666,15 @@ public class Pallet : NetworkBehaviour
     void ActorAnimClientRpc(NetworkObjectReference actor, string triggerName)
     {
         if (!actor.TryGet(out NetworkObject no)) return;
+        if ((triggerName == "pallet_drop" || triggerName == "break_pallet") && no.IsOwner) return;   // Máy người đập/phá đã chạy local ngay lúc bấm phím
+
         Animator a = no.GetComponentInChildren<Animator>();
         if (a == null) return;
         int hash = Animator.StringToHash(triggerName);
         foreach (AnimatorControllerParameter p in a.parameters)
             if (p.nameHash == hash) { a.SetTrigger(hash); return; }   // thiếu tham số thì bỏ qua, không báo lỗi
     }
+
     /// <summary>Chỉ gửi tới máy của Hunter bị choáng: đẩy ra khỏi pallet và khóa di chuyển.</summary>
     [ClientRpc]
     void StunHunterClientRpc(NetworkObjectReference target, Vector3 pos, float yaw, float duration, ClientRpcParams rpcParams = default)

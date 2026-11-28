@@ -592,6 +592,7 @@ public class LobbyScreen : MonoBehaviour
         b.colors = cb;
         Text t = Label(rt, label, fontSize, textColor, bold ? FontStyle.Bold : FontStyle.Normal, TextAnchor.MiddleCenter);
         Stretch(t.rectTransform);
+        b.onClick.AddListener(() => SoundManager.I?.PlayUIClick());
         return b;
     }
 

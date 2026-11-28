@@ -171,11 +171,11 @@ public class RocketChair : NetInteractable
 
     void UpdateLabel()
     {
-        if (countdownLabel == null) return;
         int s = IsFree ? 0 : Mathf.CeilToInt(TimeLeft.Value);
         if (s == shownSeconds) return;
         shownSeconds = s;
-        countdownLabel.text = s > 0 ? s + "s" : "";
+        if (s > 0) SoundManager.I?.PlaySFX(SoundManager.I.chairTick, transform.position, 0.75f);
+        if (countdownLabel != null) countdownLabel.text = s > 0 ? s + "s" : "";
     }
 
     

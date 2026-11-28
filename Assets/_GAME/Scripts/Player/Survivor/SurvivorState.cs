@@ -84,6 +84,8 @@ public class SurvivorState : NetworkBehaviour
 
     NetworkPlayerMovement move;
     CharacterController cc;
+    SurvivorSkill skill;
+    bool visualsReady;   // đã qua frame đầu: trước đó renderer cố tình tắt để tránh flash màu
 
     float lastHitTime = -999f;       // server
     float hp = 1f;                   // server: máu hiện tại (1 = Khỏe, 0,5 = Bị thương, 0 = Gục)
@@ -107,6 +109,7 @@ public class SurvivorState : NetworkBehaviour
         animator = GetComponentInChildren<Animator>();
         move = GetComponent<NetworkPlayerMovement>();
         cc = GetComponent<CharacterController>();
+        skill = GetComponent<SurvivorSkill>();
 
         if (animator != null)
         {
@@ -133,6 +136,7 @@ public class SurvivorState : NetworkBehaviour
     IEnumerator ApplyNextFrame()
     {
         yield return null;   // 1 frame
+        visualsReady = true;
         if (IsSpawned) Apply();
     }
 
@@ -243,7 +247,6 @@ public class SurvivorState : NetworkBehaviour
         lastHitTime = Time.time;
 
         // Knight shield: hấp thụ đòn đầu tiên mà không trừ máu
-        SurvivorSkill skill = GetComponent<SurvivorSkill>();
         if (skill != null && skill.TryAbsorbHit())
         {
             // Đòn bị hấp thụ bởi kỹ năng Tráng sĩ, không trừ máu
@@ -431,8 +434,7 @@ public class SurvivorState : NetworkBehaviour
         if (s != SurvivorHealth.Carried) carrierTransform = null;
 
         // Đã thoát/bị loại: ẩn model, khóa di chuyển. Server cũng dùng IsOut để bỏ qua khi tấn công.
-        foreach (Renderer r in renderers)
-            if (r != null) r.enabled = !gone || jumping;
+        ApplyVisibility();
         if (move != null) move.enabled = !gone;
 
         ApplyTint(s);
@@ -452,6 +454,26 @@ public class SurvivorState : NetworkBehaviour
         TrySnap();
     }
 
+    /// <summary>
+    /// SurvivorSkill gọi khi khiên / tàng hình đổi: vẽ lại hiển thị theo ĐÚNG trạng thái hiện tại (đã thoát, đang tàng hình, màu khiên)
+    /// thay vì bật/tắt mù, nên không làm hiện lại xác của người đã thoát hay mất màu khiên.
+    /// </summary>
+    public void RefreshVisuals()
+    {
+        if (!IsSpawned || !visualsReady) return;
+        ApplyVisibility();
+        ApplyTint(Current);
+    }
+
+    // Hiện model khi còn trong trận; Sorcerer tàng hình thì chỉ chủ nhân còn thấy (mờ, xem ApplyTint).
+    void ApplyVisibility()
+    {
+        bool show = !IsOut || jumping;
+        if (show && skill != null && skill.IsInvisible && !IsOwner) show = false;
+        foreach (Renderer r in renderers)
+            if (r != null) r.enabled = show;
+    }
+
     void ApplyTint(SurvivorHealth s)
     {
         Color c;
@@ -463,6 +485,11 @@ public class SurvivorState : NetworkBehaviour
             case SurvivorHealth.OnChair: c = chairColor; break;
             default: c = Color.white; break;
         }
+
+        // Khiên Tráng sĩ (vàng) đè màu trạng thái; hết khiên thì quay về đúng màu trạng thái ngay lần vẽ này.
+        if (skill != null && skill.TryGetTintOverride(out Color over)) c = over;
+        // Sorcerer đang tàng hình: chủ nhân thấy mờ.
+        if (skill != null && skill.IsInvisible && IsOwner) c.a = 0.3f;
 
         SetTint(c);
     }

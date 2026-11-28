@@ -30,6 +30,7 @@ public class MatchResultUI : MonoBehaviour
 
     void OnBack()
     {
+        SoundManager.I?.PlayUIClick();
         if (MatchManager.Instance != null) MatchManager.Instance.BackToLobby();
     }
 

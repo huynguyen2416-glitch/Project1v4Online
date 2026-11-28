@@ -90,6 +90,11 @@ public class SoundManager : MonoBehaviour
 
     AudioSource musicSource;
     AudioSource sfx2DSource;   // dùng cho PlayOneShot 2D (UI, thông báo)
+    Coroutine musicCoroutine;
+    AudioClip targetMusicClip;
+    float currentMusicScale = 1f;
+
+    float TargetMusicVolume => Mathf.Clamp01(musicVolume * currentMusicScale);
 
     void EnsureSources()
     {
@@ -113,13 +118,26 @@ public class SoundManager : MonoBehaviour
     // ═══════════════════════ API ═══════════════════════
 
     /// <summary>
-    /// Phát SFX 3D tại vị trí trong thế giới. Mọi người gần đó đều nghe.
+    /// Phát SFX 3D tại vị trí trong thế giới (tôn trọng maxSFXDistance). Mọi người gần đó đều nghe.
     /// Dùng cho: pallet, đánh, bước chân, kỹ năng...
     /// </summary>
     public void PlaySFX(AudioClip clip, Vector3 position, float volumeScale = 1f)
     {
         if (clip == null) return;
-        AudioSource.PlayClipAtPoint(clip, position, sfxVolume * volumeScale);
+        float vol = Mathf.Clamp01(sfxVolume * volumeScale);
+        if (vol <= 0f) return;
+
+        GameObject go = new GameObject("SFX_3D");
+        go.transform.position = position;
+        AudioSource src = go.AddComponent<AudioSource>();
+        src.clip = clip;
+        src.volume = vol;
+        src.spatialBlend = 1f;
+        src.rolloffMode = AudioRolloffMode.Linear;
+        src.minDistance = 2f;
+        src.maxDistance = Mathf.Max(2f, maxSFXDistance);
+        src.Play();
+        Destroy(go, clip.length + 0.1f);
     }
 
     /// <summary>
@@ -132,6 +150,9 @@ public class SoundManager : MonoBehaviour
         sfx2DSource.PlayOneShot(clip, sfxVolume * volumeScale);
     }
 
+    /// <summary>Phát nhanh âm thanh bấm nút UI.</summary>
+    public void PlayUIClick() => Play2D(uiClick);
+
     /// <summary>
     /// Phát SFX 3D trên 1 AudioSource cụ thể (loop, dừng được).
     /// Dùng cho: giải mã máy (loop), bước chân liên tục...
@@ -139,10 +160,16 @@ public class SoundManager : MonoBehaviour
     public void PlayLoop(AudioSource source, AudioClip clip, float volumeScale = 1f)
     {
         if (source == null || clip == null) return;
+        source.volume = Mathf.Clamp01(sfxVolume * volumeScale);
+        if (source.spatialBlend > 0f)
+        {
+            source.rolloffMode = AudioRolloffMode.Linear;
+            source.minDistance = 2f;
+            source.maxDistance = Mathf.Max(2f, maxSFXDistance);
+        }
         if (source.isPlaying && source.clip == clip) return;   // đang phát rồi
         source.clip = clip;
         source.loop = true;
-        source.volume = sfxVolume * volumeScale;
         source.Play();
     }
 
@@ -155,31 +182,56 @@ public class SoundManager : MonoBehaviour
     // ─── Nhạc nền ────────────────────────────────────────
 
     /// <summary>Chuyển nhạc nền (fade nhanh). Truyền null để tắt nhạc.</summary>
-    public void PlayMusic(AudioClip clip, float fadeTime = 0.5f)
+    public void PlayMusic(AudioClip clip, float fadeTime = 0.5f, float volumeScale = 1f)
     {
         if (musicSource == null) return;
 
         if (clip == null) { StopMusic(fadeTime); return; }
-        if (musicSource.clip == clip && musicSource.isPlaying) return;
 
-        // Đơn giản: cắt ngay, phát mới. Nếu muốn fade thì dùng Coroutine bên dưới.
+        currentMusicScale = Mathf.Max(0f, volumeScale);
+        if (targetMusicClip == clip && (musicSource.isPlaying || musicCoroutine != null))
+        {
+            if (musicCoroutine == null) musicSource.volume = TargetMusicVolume;
+            return;
+        }
+
+        targetMusicClip = clip;
+        StopMusicCoroutine();
+
         if (fadeTime <= 0f || !musicSource.isPlaying)
         {
             musicSource.clip = clip;
-            musicSource.volume = musicVolume;
+            musicSource.volume = TargetMusicVolume;
             musicSource.Play();
         }
         else
         {
-            StartCoroutine(CrossfadeMusic(clip, fadeTime));
+            musicCoroutine = StartCoroutine(CrossfadeMusic(clip, fadeTime));
         }
     }
 
     public void StopMusic(float fadeTime = 0.5f)
     {
-        if (musicSource == null || !musicSource.isPlaying) return;
-        if (fadeTime <= 0f) { musicSource.Stop(); return; }
-        StartCoroutine(FadeOutMusic(fadeTime));
+        if (musicSource == null) return;
+        targetMusicClip = null;
+        StopMusicCoroutine();
+        if (!musicSource.isPlaying) return;
+        if (fadeTime <= 0f)
+        {
+            musicSource.Stop();
+            musicSource.volume = TargetMusicVolume;
+            return;
+        }
+        musicCoroutine = StartCoroutine(FadeOutMusic(fadeTime));
+    }
+
+    void StopMusicCoroutine()
+    {
+        if (musicCoroutine != null)
+        {
+            StopCoroutine(musicCoroutine);
+            musicCoroutine = null;
+        }
     }
 
     System.Collections.IEnumerator CrossfadeMusic(AudioClip newClip, float duration)
@@ -201,10 +253,11 @@ public class SoundManager : MonoBehaviour
         // Fade in
         for (float t = 0f; t < half; t += Time.unscaledDeltaTime)
         {
-            musicSource.volume = Mathf.Lerp(0f, musicVolume, t / half);
+            musicSource.volume = Mathf.Lerp(0f, TargetMusicVolume, t / half);
             yield return null;
         }
-        musicSource.volume = musicVolume;
+        musicSource.volume = TargetMusicVolume;
+        musicCoroutine = null;
     }
 
     System.Collections.IEnumerator FadeOutMusic(float duration)
@@ -216,7 +269,8 @@ public class SoundManager : MonoBehaviour
             yield return null;
         }
         musicSource.Stop();
-        musicSource.volume = musicVolume;
+        musicSource.volume = TargetMusicVolume;
+        musicCoroutine = null;
     }
 
     // ─── Tiện ích ────────────────────────────────────────
@@ -232,18 +286,18 @@ public class SoundManager : MonoBehaviour
     public void SetMusicVolume(float vol)
     {
         musicVolume = Mathf.Clamp01(vol);
-        if (musicSource != null) musicSource.volume = musicVolume;
+        if (musicSource != null && musicCoroutine == null) musicSource.volume = TargetMusicVolume;
         PlayerPrefs.SetFloat("musicVolume", musicVolume);
     }
 
     void Start()
     {
-        // Khôi phục âm lượng đã lưu
+        // Khôi phục âm lượng đã lưu (chỉ áp dụng nếu hợp lệ > 0 để tránh bị tắt nhầm)
         if (PlayerPrefs.HasKey("sfxVolume")) sfxVolume = PlayerPrefs.GetFloat("sfxVolume");
         if (PlayerPrefs.HasKey("musicVolume"))
         {
             musicVolume = PlayerPrefs.GetFloat("musicVolume");
-            if (musicSource != null) musicSource.volume = musicVolume;
+            if (musicSource != null) musicSource.volume = TargetMusicVolume;
         }
     }
 }

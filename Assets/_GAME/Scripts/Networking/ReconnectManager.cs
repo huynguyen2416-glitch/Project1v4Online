@@ -30,6 +30,8 @@ public class ReconnectManager : MonoBehaviour
         public Vector3 position;
         public float yaw;
         public SurvivorHealth health;
+        public float skillReadyAt;   // SurvivorSkill.CooldownReadyAt (giờ server), 0 = sẵn sàng
+        public bool knightShield;    // khiên Tráng sĩ đang bật
         public float deadline;   // Time.time khi hết hạn
     }
 
@@ -38,6 +40,8 @@ public class ReconnectManager : MonoBehaviour
         public Vector3 pos;
         public float yaw;
         public SurvivorHealth health;
+        public float skillReadyAt;
+        public bool knightShield;
     }
 
     readonly Dictionary<string, SavedState> pending = new Dictionary<string, SavedState>();   // playerId -> state đang chờ
@@ -99,6 +103,8 @@ public class ReconnectManager : MonoBehaviour
         Vector3 pos = Vector3.zero;
         float yaw = 0f;
         SurvivorHealth hp = SurvivorHealth.Healthy;
+        float readyAt = 0f;
+        bool shield = false;
 
         if (playerObj != null)
         {
@@ -107,9 +113,13 @@ public class ReconnectManager : MonoBehaviour
             yaw = playerObj.transform.eulerAngles.y;
             SurvivorState ss = playerObj.GetComponent<SurvivorState>();
             if (ss != null) hp = ss.Current;
+            SurvivorSkill sk = playerObj.GetComponent<SurvivorSkill>();
+            if (sk != null) { readyAt = sk.CooldownReadyAt.Value; shield = sk.ServerShieldUp; }
         }
         else if (snaps.TryGetValue(clientId, out Snap sn))
         {
+            readyAt = sn.skillReadyAt;
+            shield = sn.knightShield;
             hasPos = true;
             pos = sn.pos;
             yaw = sn.yaw;
@@ -126,6 +136,8 @@ public class ReconnectManager : MonoBehaviour
             position = pos,
             yaw = yaw,
             health = hp,
+            skillReadyAt = readyAt,
+            knightShield = shield,
             deadline = Time.time + Window
         };
         idMap.Remove(clientId);
@@ -239,11 +251,14 @@ public class ReconnectManager : MonoBehaviour
             NetworkObject po = kv.Value.PlayerObject;
             if (po == null) continue;
             SurvivorState ss = po.GetComponent<SurvivorState>();
+            SurvivorSkill sk = po.GetComponent<SurvivorSkill>();
             snaps[kv.Key] = new Snap
             {
                 pos = po.transform.position,
                 yaw = po.transform.eulerAngles.y,
-                health = ss != null ? ss.Current : SurvivorHealth.Healthy
+                health = ss != null ? ss.Current : SurvivorHealth.Healthy,
+                skillReadyAt = sk != null ? sk.CooldownReadyAt.Value : 0f,
+                knightShield = sk != null && sk.ServerShieldUp
             };
         }
     }

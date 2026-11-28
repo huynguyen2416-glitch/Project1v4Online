@@ -17,6 +17,7 @@ public class CipherMachine : NetInteractable
     [SerializeField] ParticleSystem doneBurst;
 
     float lightTarget;
+    AudioSource workAudio;
 
     public override string PromptText => "Giải mã máy";
     public override bool TerrorShockOnUse => true;
@@ -29,16 +30,45 @@ public class CipherMachine : NetInteractable
     {
         base.OnNetworkSpawn();
         Done.OnValueChanged += OnDoneChanged;
+        InUse.OnValueChanged += OnInUseChanged;
         ApplyDone(Done.Value, false);   // người vào muộn thấy máy đã xong sáng sẵn
+        UpdateWorkAudio();
     }
 
     public override void OnNetworkDespawn()
     {
         Done.OnValueChanged -= OnDoneChanged;
+        InUse.OnValueChanged -= OnInUseChanged;
+        SoundManager.I?.StopLoop(workAudio);
         base.OnNetworkDespawn();
     }
 
-    void OnDoneChanged(bool previous, bool value) => ApplyDone(value, true);
+    void OnDoneChanged(bool previous, bool value)
+    {
+        ApplyDone(value, true);
+        UpdateWorkAudio();
+    }
+
+    void OnInUseChanged(bool previous, bool value) => UpdateWorkAudio();
+
+    void UpdateWorkAudio()
+    {
+        if (SoundManager.I == null) return;
+        if (InUse.Value && !Done.Value && SoundManager.I.cipherProgress != null)
+        {
+            if (workAudio == null)
+            {
+                workAudio = gameObject.AddComponent<AudioSource>();
+                workAudio.spatialBlend = 1f;
+                workAudio.playOnAwake = false;
+            }
+            SoundManager.I.PlayLoop(workAudio, SoundManager.I.cipherProgress, 0.7f);
+        }
+        else
+        {
+            SoundManager.I.StopLoop(workAudio);
+        }
+    }
 
     void ApplyDone(bool done, bool animate)
     {

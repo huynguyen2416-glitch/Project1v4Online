@@ -43,15 +43,17 @@ public class SurvivorSkill : NetworkBehaviour
     /// <summary>Thời điểm server mà kỹ năng sẵn sàng (0 = sẵn sàng ngay). Mỗi máy đọc để hiện cooldown.</summary>
     public readonly NetworkVariable<float> CooldownReadyAt = new NetworkVariable<float>(0f);
 
+    /// <summary>Tiến độ tự lành của Doctor (0..100, %). Server ghi khi đổi, mọi máy đọc để UI hiện cả tiến độ đã lưu.</summary>
+    public readonly NetworkVariable<byte> DoctorHealPct = new NetworkVariable<byte>(0);
+
     /// <summary>Kỹ năng đang hoạt động (Knight shield / Sorcerer invis). Mỗi máy đọc để áp hiệu ứng.</summary>
     public readonly NetworkVariable<bool> SkillActive = new NetworkVariable<bool>(false);
 
     // ─── Nội bộ ──────────────────────────────────────────
     SurvivorState state;
     NetworkPlayerMovement move;
-    Renderer[] renderers;
-    MaterialPropertyBlock block;
     CharacterInput input;
+    BotController botCtrlCache;   // lấy lười: BotController được gắn SAU khi object spawn
 
     // Server – Knight
     bool knightShieldUp;
@@ -60,14 +62,11 @@ public class SurvivorSkill : NetworkBehaviour
     float sorcererEndTime;
 
     // Server – Doctor tự lành
-    float doctorHealProgress;
-    bool doctorHealing;      // owner đang giữ phím
+    float doctorHealProgress;   // 0..1, được GIỮ LẠI khi nhả phím; chỉ về 0 khi lành xong hoặc không còn Bị thương
+    bool doctorHealing;         // owner đang giữ phím
 
     // Owner – Doctor
     bool ownerDoctorHolding;
-
-    static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
-    static readonly int ColorId     = Shader.PropertyToID("_Color");
 
     public SurvivorClass Class => (SurvivorClass)ClassId.Value;
 
@@ -89,10 +88,10 @@ public class SurvivorSkill : NetworkBehaviour
         {
             switch (Class)
             {
-                case SurvivorClass.Knight:   return knightCooldown;
-                case SurvivorClass.Athlete:  return athleteCooldown;
+                case SurvivorClass.Knight: return knightCooldown;
+                case SurvivorClass.Athlete: return athleteCooldown;
                 case SurvivorClass.Sorcerer: return sorcererCooldown;
-                default:                     return 0f;
+                default: return 0f;
             }
         }
     }
@@ -107,11 +106,11 @@ public class SurvivorSkill : NetworkBehaviour
         {
             switch (Class)
             {
-                case SurvivorClass.Knight:   return "Tráng sĩ";
-                case SurvivorClass.Athlete:  return "Tăng tốc";
-                case SurvivorClass.Doctor:   return "Tự lành";
+                case SurvivorClass.Knight: return "Tráng sĩ";
+                case SurvivorClass.Athlete: return "Tăng tốc";
+                case SurvivorClass.Doctor: return "Tự lành";
                 case SurvivorClass.Sorcerer: return "Tàng hình";
-                default:                     return "";
+                default: return "";
             }
         }
     }
@@ -123,11 +122,11 @@ public class SurvivorSkill : NetworkBehaviour
         {
             switch (Class)
             {
-                case SurvivorClass.Knight:   return "Chịu 1 đòn";
-                case SurvivorClass.Athlete:  return "+70% tốc độ";
-                case SurvivorClass.Doctor:   return "Tự hồi máu";
+                case SurvivorClass.Knight: return "Chịu 1 đòn";
+                case SurvivorClass.Athlete: return "+70% tốc độ";
+                case SurvivorClass.Doctor: return "Tự hồi máu";
                 case SurvivorClass.Sorcerer: return "Tàng hình 2s";
-                default:                     return "";
+                default: return "";
             }
         }
     }
@@ -139,38 +138,61 @@ public class SurvivorSkill : NetworkBehaviour
 
     void Awake()
     {
-        state     = GetComponent<SurvivorState>();
-        move      = GetComponent<NetworkPlayerMovement>();
-        renderers = GetComponentsInChildren<Renderer>(true);
-        block     = new MaterialPropertyBlock();
-        input     = CharacterInput.Of(gameObject);
+        state = GetComponent<SurvivorState>();
+        move = GetComponent<NetworkPlayerMovement>();
+        input = CharacterInput.Of(gameObject);
     }
 
     public override void OnNetworkSpawn()
     {
         if (IsLocalPlayer) Local = this;
 
-        // Server: gán lớp dựa vào CharacterAssignments (chỉ số nhân vật = lớp)
-        if (IsServer)
-        {
-            PlayerRoleInfo info = GetComponent<PlayerRoleInfo>();
-            if (info != null && info.CurrentRole == Role.Survivor)
-            {
-                BotController bc = GetComponent<BotController>();
-                ulong effectiveId = (bc != null && bc.OriginalClientId != 0) ? bc.OriginalClientId : OwnerClientId;
-                int ci = CharacterAssignments.Get(effectiveId);
-                ClassId.Value = (byte)ci;
-            }
-        }
+        // Server: gán lớp dựa vào CharacterAssignments (chỉ số nhân vật = lớp).
+        // Bot không phải PlayerObject và lúc này chưa có BotController (OwnerClientId = host): MatchSpawner.SpawnBot
+        // gọi ServerSetClass sau khi gắn BotController, nên bỏ qua ở đây để bot không nhận nhầm lớp của host.
+        if (IsServer && NetworkObject.IsPlayerObject)
+            ServerSetClass(CharacterAssignments.Get(OwnerClientId));
 
-        ClassId.OnValueChanged   += OnClassChanged;
+        ClassId.OnValueChanged += OnClassChanged;
         SkillActive.OnValueChanged += OnActiveChanged;
+    }
+
+    /// <summary>SERVER: đặt lớp cho Survivor (bot gọi sau khi spawn; người chơi gọi trong OnNetworkSpawn). Chỉ có tác dụng với vai Survivor.</summary>
+    public void ServerSetClass(int ci)
+    {
+        if (!IsServer) return;
+        PlayerRoleInfo info = GetComponent<PlayerRoleInfo>();
+        if (info != null && info.CurrentRole == Role.Survivor)
+            ClassId.Value = (byte)ci;
+    }
+
+    /// <summary>SERVER: khôi phục cooldown và khiên cho Survivor mới sau khi nối lại, để rớt mạng không reset kỹ năng.</summary>
+    public void ServerRestoreSkill(float readyAt, bool shieldUp)
+    {
+        if (!IsServer) return;
+        if (readyAt > CooldownReadyAt.Value) CooldownReadyAt.Value = readyAt;
+        if (Class == SurvivorClass.Knight && shieldUp && !SkillActive.Value)
+        {
+            knightShieldUp = true;
+            SkillActive.Value = true;
+        }
+    }
+
+    /// <summary>SERVER: khiên Tráng sĩ đang bật (ReconnectManager lưu lại).</summary>
+    public bool ServerShieldUp => knightShieldUp;
+
+    /// <summary>Màu đè lên màu trạng thái (khiên vàng của Tráng sĩ). SurvivorState.ApplyTint hỏi để không ghi đè.</summary>
+    public bool TryGetTintOverride(out Color c)
+    {
+        if (Class == SurvivorClass.Knight && SkillActive.Value) { c = knightShieldColor; return true; }
+        c = default;
+        return false;
     }
 
     public override void OnNetworkDespawn()
     {
         if (Local == this) Local = null;
-        ClassId.OnValueChanged     -= OnClassChanged;
+        ClassId.OnValueChanged -= OnClassChanged;
         SkillActive.OnValueChanged -= OnActiveChanged;
     }
 
@@ -207,6 +229,10 @@ public class SurvivorSkill : NetworkBehaviour
         if (MatchManager.Ended) return;
         if (state == null || state.IsOut) return;
 
+        // Bot (và bot thay người rớt mạng) do host sở hữu nên cũng chạy OwnerUpdate: không được đọc bàn phím của host.
+        if (botCtrlCache == null) botCtrlCache = GetComponent<BotController>();
+        if (botCtrlCache != null && botCtrlCache.State != BotController.BotState.Off) return;
+
         // Doctor: giữ phím Q liên tục để tự lành (Injured → Healthy, không cần gục)
         if (Class == SurvivorClass.Doctor)
         {
@@ -241,21 +267,31 @@ public class SurvivorSkill : NetworkBehaviour
             knightShieldUp = false;
         }
 
-        // Doctor: server cộng tiến độ
+        // Doctor: không còn Bị thương (bị đánh gục, được người khác chữa, bị loại...) thì bỏ tiến độ đã lưu
+        if (Class == SurvivorClass.Doctor && state.Current != SurvivorHealth.Injured
+            && (doctorHealProgress > 0f || doctorHealing))
+        {
+            doctorHealing = false;
+            doctorHealProgress = 0f;
+            SyncDoctorPct();
+        }
+
+        // Doctor: server cộng tiến độ (chỉ khi đang giữ phím; nhả phím thì dừng nhưng GIỮ tiến độ)
         if (Class == SurvivorClass.Doctor && doctorHealing)
         {
-            if (state.Current != SurvivorHealth.Injured || MatchManager.Ended)
+            if (MatchManager.Ended)
             {
                 doctorHealing = false;
-                doctorHealProgress = 0f;
                 return;
             }
 
             doctorHealProgress += Time.deltaTime / Mathf.Max(0.1f, doctorHealDuration);
+            SyncDoctorPct();
             if (doctorHealProgress >= 1f)
             {
                 doctorHealProgress = 0f;
                 doctorHealing = false;
+                SyncDoctorPct();
                 state.ServerHeal();   // Injured → Healthy
                 // Báo owner mở khóa di chuyển
                 DoctorReleaseClientRpc(new ClientRpcParams
@@ -305,8 +341,14 @@ public class SurvivorSkill : NetworkBehaviour
     [ServerRpc]
     void DoctorHoldServerRpc(bool holding)
     {
-        doctorHealing = holding && state.Current == SurvivorHealth.Injured;
-        if (!doctorHealing) doctorHealProgress = 0f;
+        // Nhả phím chỉ tạm dừng: tiến độ vẫn được giữ cho lần giữ phím sau.
+        doctorHealing = holding && Class == SurvivorClass.Doctor && state.Current == SurvivorHealth.Injured;
+    }
+
+    void SyncDoctorPct()
+    {
+        byte pct = (byte)Mathf.Clamp(Mathf.RoundToInt(doctorHealProgress * 100f), 0, 100);
+        if (DoctorHealPct.Value != pct) DoctorHealPct.Value = pct;
     }
 
     [ClientRpc]
@@ -352,7 +394,7 @@ public class SurvivorSkill : NetworkBehaviour
     // ═══════════════════ Doctor – Tự lành ═══════════════════
 
     /// <summary>Tiến độ tự lành (0..1). UI đọc.</summary>
-    public float DoctorHealPercent => doctorHealing ? doctorHealProgress : 0f;
+    public float DoctorHealPercent => DoctorHealPct.Value / 100f;
 
     /// <summary>Lời nhắc cho InteractUI khi Doctor đang tự lành.</summary>
     public string DoctorPrompt
@@ -361,62 +403,17 @@ public class SurvivorSkill : NetworkBehaviour
         {
             if (!IsOwner || Class != SurvivorClass.Doctor) return null;
             if (state.Current != SurvivorHealth.Injured) return null;
-            int pct = Mathf.RoundToInt(Mathf.Clamp01(DoctorHealPercent) * 100f);
-            return ownerDoctorHolding
-                ? $"Đang tự lành... {pct}%"
-                : $"Giữ [{skillKey}] để tự lành";
+            int pct = DoctorHealPct.Value;
+            if (ownerDoctorHolding) return $"Đang tự lành... {pct}%";
+            return pct > 0 ? $"Giữ [{skillKey}] để tiếp tục tự lành ({pct}%)" : $"Giữ [{skillKey}] để tự lành";
         }
     }
 
     // ═══════════════════ Hiệu ứng ═══════════════════
 
-    void ApplyKnightVisual(bool on)
-    {
-        Color c = on ? knightShieldColor : Color.white;
-        // Nếu đang bị thương thì dùng lại màu injured (SurvivorState.Apply sẽ tô lại)
-        if (!on && state != null) return;   // SurvivorState.Apply() sẽ áp đúng màu
-        SetTint(c);
-    }
+    // Toàn bộ việc bật/tắt renderer và tô màu nằm ở SurvivorState (một nơi duy nhất ghi), nên hai bên không đè nhau:
+    // SurvivorState.Apply đọc IsInvisible và TryGetTintOverride, còn ở đây chỉ báo nó vẽ lại.
+    void ApplyKnightVisual(bool on) { if (state != null) state.RefreshVisuals(); }
 
-    void ApplySorcererVisual(bool on)
-    {
-        // Tàng hình: mọi máy KHÁC ẩn model. Máy chủ nhân vẫn thấy mờ.
-        foreach (Renderer r in renderers)
-        {
-            if (r == null) continue;
-            if (on)
-            {
-                if (IsOwner)
-                {
-                    // Chủ nhân thấy mờ
-                    r.GetPropertyBlock(block);
-                    Color ghost = new Color(1f, 1f, 1f, 0.3f);
-                    block.SetColor(BaseColorId, ghost);
-                    block.SetColor(ColorId, ghost);
-                    r.SetPropertyBlock(block);
-                }
-                else
-                {
-                    r.enabled = false;   // người khác không thấy
-                }
-            }
-            else
-            {
-                r.enabled = true;
-                // SurvivorState.Apply() sẽ tô đúng màu
-            }
-        }
-    }
-
-    void SetTint(Color c)
-    {
-        foreach (Renderer r in renderers)
-        {
-            if (r == null) continue;
-            r.GetPropertyBlock(block);
-            block.SetColor(BaseColorId, c);
-            block.SetColor(ColorId, c);
-            r.SetPropertyBlock(block);
-        }
-    }
+    void ApplySorcererVisual(bool on) { if (state != null) state.RefreshVisuals(); }
 }

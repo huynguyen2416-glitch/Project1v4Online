@@ -19,14 +19,14 @@ using UnityEngine;
 [RequireComponent(typeof(NetworkPlayerMovement))]
 public class PalletInteract : NetworkBehaviour
 {
-    /// <summary>PalletIntera   ct của người chơi trên máy này (null nếu chưa spawn).</summary>
+    /// <summary>PalletInteract của người chơi trên máy này (null nếu chưa spawn).</summary>
     public static PalletInteract Local { get; private set; }
 
     public KeyCode Key => input.Keys.PalletKey;
 
     [Header("Quét")]
     [Tooltip("1 = phải nhìn thẳng vào pallet, 0 = chỉ cần không quay lưng. Gợi ý 0.3 (giống PlayerVault).")]
-    [Range(-1f, 1f)] [SerializeField] float minFacing = 0.3f;
+    [Range(-1f, 1f)][SerializeField] float minFacing = 0.3f;
     [SerializeField] float scanInterval = 0.1f;
 
     NetworkPlayerMovement move;
@@ -134,13 +134,17 @@ public class PalletInteract : NetworkBehaviour
             return;
         }
 
-        if (Time.time >= nextScan)
+        if (input.PalletDown)
+        {
+            nextScan = Time.time + scanInterval;
+            FindTarget(isHunter);
+            if (target != null) Act(isHunter);
+        }
+        else if (Time.time >= nextScan)
         {
             nextScan = Time.time + scanInterval;
             FindTarget(isHunter);
         }
-
-        if (target != null && input.PalletDown) Act(isHunter);
     }
 
     void FindTarget(bool isHunter)
@@ -164,7 +168,7 @@ public class PalletInteract : NetworkBehaviour
             if (!p.TryGetSide(transform.position, out int side, out float dist)) continue;
 
             // Phải đang quay mặt về phía bên kia pallet.
-           if (isHunter && Vector3.Dot(transform.forward, p.JumpDirection(side)) < minFacing) continue;
+            if (isHunter && Vector3.Dot(transform.forward, p.JumpDirection(side)) < minFacing) continue;
 
             if (dist < best) { best = dist; target = p; targetSide = side; }
         }
@@ -177,11 +181,17 @@ public class PalletInteract : NetworkBehaviour
         if (isHunter)
         {
             if (!p.IsDropped || p.IsBreaking.Value) return;
-            // Khóa Hunter NGAY tại máy chủ nhân trong đúng thời gian anim phá.
-            move.LockFor(p.BreakDuration);
+            // Khóa Hunter NGAY tại máy chủ nhân trong đúng thời gian anim phá (giữ "vé" để mở khóa nếu bị từ chối).
+            breakLockToken = move.LockFor(p.BreakDuration);
+
+            // Dự đoán phía client: pallet rung/vỡ và Hunter vung tay NGAY, không chờ khứ hồi mạng.
+            p.PredictBreak();
+            PlayLocalTrigger("break_pallet");
 
             if (IsBotActive)
-                p.ServerBreak(botCtrl.OriginalClientId);
+            {
+                if (!p.ServerBreak(botCtrl.OriginalClientId)) { p.CancelBreakPrediction(); OnBreakRejected(); }
+            }
             else
                 p.BreakServerRpc();
         }
@@ -190,6 +200,9 @@ public class PalletInteract : NetworkBehaviour
             // Client-side prediction: chạy animation đổ NGAY trên máy người đập,
             // không chờ server xác nhận → phản hồi tức thì, không còn chậm.
             p.PredictDrop(targetSide);
+
+            // Chạy anim đập ván của nhân vật ngay trên máy local.
+            PlayLocalTrigger("pallet_drop");
 
             if (IsBotActive)
                 p.ServerDrop(botCtrl.OriginalClientId);
@@ -201,6 +214,30 @@ public class PalletInteract : NetworkBehaviour
             if (IsClimbBlocked(p)) return;   // đang nghỉ 1s hoặc có người khác đang trèo
             StartCoroutine(VaultRoutine(p, targetSide));
         }
+    }
+
+    float breakLockToken;
+
+    /// <summary>Server từ chối yêu cầu phá pallet: mở khóa Hunter (chỉ khi khóa đó vẫn là của lần phá này) và hủy anim đang chạy.</summary>
+    public void OnBreakRejected()
+    {
+        if (move != null) move.CancelTimedLock(breakLockToken);
+        breakLockToken = 0f;
+        if (TryGetComponentAnimator(out Animator a)) a.ResetTrigger(Animator.StringToHash("break_pallet"));
+    }
+
+    bool TryGetComponentAnimator(out Animator a)
+    {
+        a = GetComponentInChildren<Animator>();
+        return a != null;
+    }
+
+    void PlayLocalTrigger(string triggerName)
+    {
+        if (!TryGetComponentAnimator(out Animator a)) return;
+        int hash = Animator.StringToHash(triggerName);
+        foreach (AnimatorControllerParameter param in a.parameters)
+            if (param.nameHash == hash) { a.SetTrigger(hash); return; }   // thiếu tham số thì bỏ qua
     }
 
     IEnumerator VaultRoutine(Pallet p, int side)

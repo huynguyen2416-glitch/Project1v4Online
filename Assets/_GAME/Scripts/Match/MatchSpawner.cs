@@ -235,6 +235,9 @@ public class MatchSpawner : MonoBehaviour
         BotController bc = BotController.Of(go);
         bc.BeginStandIn(botId);   // đặt OriginalClientId = id giả và đăng ký vào ActiveBots
         bc.StartBot();            // chạy não ngay, không đứng im
+        // SurvivorSkill.OnNetworkSpawn bỏ qua bot (lúc đó OwnerClientId = host): gán lớp theo id giả của bot ở đây.
+        SurvivorSkill botSkill = go.GetComponent<SurvivorSkill>();
+        if (botSkill != null) botSkill.ServerSetClass(ci);
         Debug.Log($"Spawn bot {botId} vai {role}, nhan vat {ci}");
     }
 }
